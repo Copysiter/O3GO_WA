@@ -104,3 +104,13 @@ class MessageFilter(Filter):
     class Constants(Filter.Constants):
         model = MessageModel
         ordering_field_name = "order_by"
+
+
+class MessageCreateResponse(BaseModel):
+    """Ответ при создании сообщения."""
+    id: int = Field(..., description="ID созданного сообщения")
+
+
+class MessageStatusResponse(MessageCreateResponse):
+    """Ответ при обновлении статуса сообщения."""
+    status: int = Field(..., description="Текущий статус сообщения")

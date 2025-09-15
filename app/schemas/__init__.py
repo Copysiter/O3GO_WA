@@ -9,10 +9,10 @@ from .account import (  #  # noqa
 )
 from .session import (  # noqa
     Session, SessionCreate, SessionUpdate, SessionInDB,  # noqa
-    SessionList, SessionFilter  # noqa
+    SessionList, SessionFilter, SessionStatusResponse  # noqa
 )
 from .message import (  # noqa
     Message, MessageCreate, MessageUpdate, MessageInDB,  # noqa
-    MessageList, MessageFilter  # noqa
+    MessageList, MessageFilter, MessageCreateResponse, MessageStatusResponse  # noqa
 )
 

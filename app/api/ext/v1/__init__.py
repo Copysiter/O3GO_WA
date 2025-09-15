@@ -1,12 +1,12 @@
 from fastapi import APIRouter
 
-from . import messages, account
+from . import message, session
 
 api_router = APIRouter()
 
 api_router.include_router(
-    messages.router, prefix='/messages', tags=['Messages']
+    message.router, prefix='/messages', tags=['Messages']
 )
 api_router.include_router(
-    account.router, prefix='/account', tags=['Account']
+    session.router, prefix='/session', tags=['Account']
 )
