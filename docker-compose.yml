@@ -1,0 +1,27 @@
+services:
+
+  db:
+    image: postgres:12
+#    command: postgres -c 'max_connections=${POSTGRES_MAX_CONNECTIONS}'
+#    shm_size: '2g'
+    volumes:
+      - postgres_data:/var/lib/postgresql/data/
+    env_file:
+      - ./.env
+    ports:
+      - '5432:5432'
+
+  api:
+    build: .
+    ports:
+      - '8000:8000'
+    volumes:
+      - ./app:/app
+    env_file:
+      - ./.env
+    depends_on:
+      - db
+    restart: always
+
+volumes:
+  postgres_data:
