@@ -94,3 +94,10 @@ class SessionFilter(Filter):
     class Constants(Filter.Constants):
         model = SessionModel
         ordering_field_name = "order_by"
+
+
+class SessionStatusResponse(BaseModel):
+    """Ответ при изменении статуса сессии аккаунта."""
+    id: str = Field(..., description="Внешний идентификатор сессии")
+    number: str = Field(..., description="Номер аккаунта")
+    status: int = Field(..., description="Текущий статус сессии аккаунта")

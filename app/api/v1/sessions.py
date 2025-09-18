@@ -50,7 +50,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 import app.deps as deps
 import app.crud as crud
 import app.models as models
-import pp.schemas as schemas
+import app.schemas as schemas
 
 
 router = APIRouter()
