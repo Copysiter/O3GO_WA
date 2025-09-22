@@ -1,0 +1,38 @@
+services:
+
+  db:
+    image: postgres:12
+    volumes:
+      - postgres_data:/var/lib/postgresql/data/
+    env_file:
+      - ./.env
+    ports:
+      - '5432:5432'
+
+  api:
+    build: ./back   # бекенд находится в папке back
+    ports:
+      - '8000:8000'
+    volumes:
+      - ./back/app:/app
+    env_file:
+      - ./.env
+    depends_on:
+      - db
+    restart: always
+
+  web:
+    build: ./webka   # фронт находится в папке webka
+    ports:
+      - '3000:3000'
+    volumes:
+      - ./webka:/app
+      - /app/node_modules
+    environment:
+      - NODE_ENV=development
+    depends_on:
+      - api
+    restart: always
+
+volumes:
+  postgres_data:
