@@ -6,6 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 import app.deps as deps
 import app.crud as crud, app.models as models, app.schemas as schemas
 from app.schemas.enum import MessageStatus
+from app.utils.geo import get_geo_by_number
 
 router = APIRouter()
 
@@ -26,26 +27,26 @@ async def create_message(
     info_3: Optional[str] = Query(None, max_length=256, description="Метаинформация 3"),
 ) -> schemas.MessageCreateResponse:
     """Создаёт новое сообщение, привязанное к сессии."""
-    db_session = await crud.session.get(db, session_id)
-    if not db_session:
+    session = await crud.session.get(db, session_id)
+    if not session:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Session with id={session_id} not found",
         )
 
-    msg_obj = schemas.MessageCreate(
+    obj_in = schemas.MessageCreate(
         session_id=session_id,
         number=number,
-        geo="",
-        text=text or "",
+        geo=get_geo_by_number(number),
+        text=text,  # если не передан, сохранится NULL
         status=MessageStatus.CREATED,
         info_1=info_1,
         info_2=info_2,
         info_3=info_3,
     )
 
-    created = await crud.message.create(db=db, obj_in=msg_obj)
-    return schemas.MessageCreateResponse(id=created.id)
+    message = await crud.message.create(db=db, obj_in=obj_in)
+    return schemas.MessageCreateResponse(id=message.id)
 
 
 @router.get(
@@ -61,8 +62,8 @@ async def update_message_status(
     user: models.User = Depends(deps.get_user_by_api_key),
 ) -> schemas.MessageStatusResponse:
     """Обновляет статус сообщения."""
-    db_obj = await crud.message.get(db, id)
-    if not db_obj:
+    message = await crud.message.get(db, id)
+    if not message:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Message with id={id} not found",
@@ -74,5 +75,5 @@ async def update_message_status(
             detail=f"Invalid message status: {status}",
         )
 
-    updated = await crud.message.update(db, db_obj=db_obj, obj_in={"status": status})
-    return schemas.MessageStatusResponse(id=updated.id, status=updated.status)
+    message = await crud.message.update(db, db_obj=message, obj_in={"status": status})
+    return schemas.MessageStatusResponse(id=message.id, status=message.status)

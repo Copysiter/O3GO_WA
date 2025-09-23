@@ -2,6 +2,8 @@ services:
 
   db:
     image: postgres:12
+#    command: postgres -c 'max_connections=${POSTGRES_MAX_CONNECTIONS}'
+#    shm_size: '2g'
     volumes:
       - postgres_data:/var/lib/postgresql/data/
     env_file:
@@ -10,11 +12,11 @@ services:
       - '5432:5432'
 
   api:
-    build: ./back   # бекенд находится в папке back
+    build: .
     ports:
       - '8000:8000'
     volumes:
-      - ./back/app:/app
+      - ./app:/app
     env_file:
       - ./.env
     depends_on:
@@ -22,11 +24,11 @@ services:
     restart: always
 
   web:
-    build: ./webka   # фронт находится в папке webka
+    build: ./Web   # фронт находится в папке webka
     ports:
       - '3000:3000'
     volumes:
-      - ./webka:/app
+      - ./Web:/app
       - /app/node_modules
     environment:
       - NODE_ENV=development
