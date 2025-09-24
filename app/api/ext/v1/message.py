@@ -20,11 +20,19 @@ async def create_message(
     *,
     db: AsyncSession = Depends(deps.get_db),
     session_id: int = Query(..., description="ID сессии аккаунта"),
-    number: str = Query(..., max_length=64, description="Номер аккаунта-получателя"),
+    number: str = Query(
+        ..., max_length=64, description="Номер аккаунта-получателя"
+    ),
     text: Optional[str] = Query(None, description="Текст сообщения"),
-    info_1: Optional[str] = Query(None, max_length=256, description="Метаинформация 1"),
-    info_2: Optional[str] = Query(None, max_length=256, description="Метаинформация 2"),
-    info_3: Optional[str] = Query(None, max_length=256, description="Метаинформация 3"),
+    info_1: Optional[str] = Query(
+        None, max_length=256, description="Служебное инфо поле 1"
+    ),
+    info_2: Optional[str] = Query(
+        None, max_length=256, description="Служебное инфо поле 2"
+    ),
+    info_3: Optional[str] = Query(
+        None, max_length=256, description="Служебное инфо поле 3"
+    ),
 ) -> schemas.MessageCreateResponse:
     """Создаёт новое сообщение, привязанное к сессии."""
     session = await crud.session.get(db, session_id)
@@ -58,22 +66,24 @@ async def update_message_status(
     *,
     db: AsyncSession = Depends(deps.get_db),
     id: int = Query(..., description="ID сообщения"),
-    status: int = Query(..., description="Новый статус сообщения"),
+    status: str = Query(..., description="Новый статус сообщения"),
     user: models.User = Depends(deps.get_user_by_api_key),
 ) -> schemas.MessageStatusResponse:
     """Обновляет статус сообщения."""
     message = await crud.message.get(db, id)
-    if not message:
+    if not message or message.session.account.user_id != user.id:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Message with id={id} not found",
         )
+    new_status = getattr(
+        schemas.MessageStatus, status.upper(), message.status
+    )
+    message = await crud.message.update(
+        db, db_obj=message, obj_in={"status": new_status}
+    )
 
-    if MessageStatus.name(status) is None:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Invalid message status: {status}",
-        )
-
-    message = await crud.message.update(db, db_obj=message, obj_in={"status": status})
-    return schemas.MessageStatusResponse(id=message.id, status=message.status)
+    return schemas.MessageStatusResponse(
+        id=message.id,
+        status=schemas.MessageStatus(message.status).name.lower()
+    )

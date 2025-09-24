@@ -30,7 +30,7 @@
 from __future__ import annotations
 
 from typing import (
-    Any, Optional, Union, Literal, Dict, Generic, List, Type, TypeVar
+    Any, Optional, Literal, Dict, Generic, List, Type, TypeVar
 )
 
 from fastapi.encoders import jsonable_encoder
@@ -85,7 +85,7 @@ class CRUDBase(Generic[ModelType, CreateType, UpdateType, FilterType]):
     # ────────────────────────────────────────────────────────────────────────
     def _get_filter(
         self,
-        flt: Union[Filter, Dict[str, Any], None]
+        flt: Filter | Dict[str, Any] | None
     ) -> Optional[Filter]:
         """
         Возвращает экземпляр фильтра fastapi-filter или None.
@@ -114,7 +114,7 @@ class CRUDBase(Generic[ModelType, CreateType, UpdateType, FilterType]):
         self,
         db: AsyncSession,
         *,
-        filter: Union[Filter, Dict[str, Any], None] = None,
+        filter: Filter | Dict[str, Any] | None = None,
         skip: int = 0,
         limit: int = 100
     ) -> List[ModelType]:
@@ -144,7 +144,7 @@ class CRUDBase(Generic[ModelType, CreateType, UpdateType, FilterType]):
         self,
         db: AsyncSession,
         *,
-        filter: Union[Filter, Dict[str, Any], None] = None
+        filter: Filter | Dict[str, Any] | None = None
     ) -> int:
         """
         Возвращает количество записей с учётом фильтра (если задан).
@@ -212,7 +212,7 @@ class CRUDBase(Generic[ModelType, CreateType, UpdateType, FilterType]):
         self,
         db: AsyncSession,
         *,
-        obj_in: CreateType,
+        obj_in: CreateType | Dict[str, Any],
         commit: bool = True
     ) -> ModelType:
         """
@@ -226,7 +226,10 @@ class CRUDBase(Generic[ModelType, CreateType, UpdateType, FilterType]):
         Returns:
             Созданный экземпляр модели (после flush/commit).
         """
-        data = jsonable_encoder(obj_in)
+        data = (
+            obj_in if isinstance(obj_in, dict)
+            else obj_in.model_dump(exclude_unset=True)
+        )
         db_obj = self.model(**data)  # type: ignore[arg-type]
         db.add(db_obj)
 
@@ -244,11 +247,11 @@ class CRUDBase(Generic[ModelType, CreateType, UpdateType, FilterType]):
         *,
         db_obj: Optional[ModelType] = None,
         id: Optional[Any] = None,
-        obj_in: Union[UpdateType, Dict[str, Any]],
-        filter: Union[Filter, Dict[str, Any], None] = None,
+        obj_in: UpdateType | Dict[str, Any],
+        filter: Filter | Dict[str, Any] | None = None,
         commit: bool = True,
         returning: Literal["object", "id", "count"] = "object"
-    ) -> Union[ModelType, int, List[ModelType]]:
+    ) -> ModelType | List[ModelType] | int:
         """
         Обновляет запись(и) с поддержкой UPDATE ... RETURNING, fastapi-filter.
 

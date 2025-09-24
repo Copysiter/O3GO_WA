@@ -42,5 +42,7 @@ class Account(Base):
     info_2 = Column(String(256), nullable=True, index=True)
     info_3 = Column(String(256), nullable=True, index=True)
 
-    user = relationship("User", back_populates="accounts")
+    user = relationship(
+        "User", back_populates="accounts", lazy="selectin"
+    )
     sessions = relationship("Session", back_populates="account")

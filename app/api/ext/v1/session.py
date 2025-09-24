@@ -13,13 +13,14 @@ router = APIRouter()
 async def _update_session_status(
     db: AsyncSession,
     id: str,
+    user_id: str,
     number: str,
     status: AccountStatus,
     msg_count: int = 0,
 ) -> schemas.SessionStatusResponse:
     """Обновляет статус сессии, проверяя связанный аккаунт, и увеличивает msg_count при необходимости."""
     session = await crud.session.get_by(db, ext_id=id)
-    if not session:
+    if not session or session.account.user_id != user_id:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Session with ext_id={id} not found",
@@ -55,10 +56,15 @@ async def start_session(
     *,
     db: AsyncSession = Depends(deps.get_db),
     id: str = Query(..., description="Внешний ID сессии"),
-    number: str = Query(..., max_length=64, description="Номер аккаунта/получателя"),
+    number: str = Query(
+        ..., max_length=64, description="Номер аккаунта/получателя"
+    ),
     user: models.User = Depends(deps.get_user_by_api_key),
 ) -> schemas.SessionStatusResponse:
-    """Стартует сессию: если аккаунта нет — создаёт, если сессия уже существует — ошибка."""
+    """
+    Стартует сессию:
+    если аккаунта нет — создаёт, если сессия уже существует — ошибка.
+    """
 
     # Проверяем, нет ли уже сессии с таким ext_id
     existing = await crud.session.get_by(db, ext_id=id)
@@ -71,12 +77,12 @@ async def start_session(
     # Проверяем аккаунт, если нет — создаём
     account = await crud.account.get_by(db, number=number)
     if not account:
-        account_in = schemas.AccountCreate(number=number, user_id=user.id)
-        account = await crud.account.create(db=db, obj_in=account_in)
+        obj_in = schemas.AccountCreate(number=number, user_id=user.id)
+        account = await crud.account.create(db=db, obj_in=obj_in)
 
     # Создаём новую сессию
     obj_in = schemas.SessionCreate(
-        account_id=account.id, ext_id=id, status=AccountStatus.ACTIVE, msg_count=0
+        account_id=account.id, ext_id=id, status=AccountStatus.ACTIVE
     )
     session = await crud.session.create(db=db, obj_in=obj_in)
 
@@ -98,12 +104,15 @@ async def finish_session(
     db: AsyncSession = Depends(deps.get_db),
     id: str = Query(..., description="Внешний ID сессии"),
     number: str = Query(..., max_length=64, description="Номер аккаунта"),
-    msg_count: int = Query(0, ge=0, description="Количество сообщений, которое нужно прибавить"),
+    msg_count: int = Query(
+        0, ge=0, description="Количество сообщений, которое нужно прибавить"
+    ),
     user: models.User = Depends(deps.get_user_by_api_key),
 ) -> schemas.SessionStatusResponse:
     """Помечает сессию как завершённую (AVAILABLE) и обновляет msg_count."""
     return await _update_session_status(
-        db, id=id, number=number, status=AccountStatus.AVAILABLE, msg_count=msg_count
+        db, id=id, user_id=user.id, number=number,
+        status=AccountStatus.AVAILABLE, msg_count=msg_count
     )
 
 
@@ -117,10 +126,13 @@ async def ban_session(
     db: AsyncSession = Depends(deps.get_db),
     id: str = Query(..., description="Внешний ID сессии"),
     number: str = Query(..., max_length=64, description="Номер аккаунта"),
-    msg_count: int = Query(0, ge=0, description="Количество сообщений, которое нужно прибавить"),
+    msg_count: int = Query(
+        0, ge=0, description="Количество сообщений, которое нужно прибавить"
+    ),
     user: models.User = Depends(deps.get_user_by_api_key),
 ) -> schemas.SessionStatusResponse:
     """Помечает сессию как заблокированную (BANNED) и обновляет msg_count."""
     return await _update_session_status(
-        db, id=id, number=number, status=AccountStatus.BANNED, msg_count=msg_count
+        db, id=id, user_id=user.id, number=number,
+        status=AccountStatus.BANNED, msg_count=msg_count
     )

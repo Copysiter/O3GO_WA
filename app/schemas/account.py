@@ -20,11 +20,11 @@ class AccountBase(BaseModel):
         None, description="Исходное название архива"
     )
     status: Optional[int] = Field(None, description="Статус аккаунта")
-    create_ts: Optional[datetime] =  Field(
+    created_at: Optional[datetime] =  Field(
         default_factory=lambda: datetime.now(timezone.utc),
         description="Дата добавления аккаунта"
     )
-    update_ts: Optional[datetime] = Field(
+    updated_at: Optional[datetime] = Field(
         default_factory=lambda: datetime.now(timezone.utc),
         description="Последняя дата использования"
     )

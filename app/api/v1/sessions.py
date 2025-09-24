@@ -73,7 +73,7 @@ async def read_sessions(
 
     Args:
         db: Асинхронная сессия базы данных.
-        f: Фильтр `AccountFilter` (query-параметров через fastapi-filter).
+        f: Фильтр `SessionFilter` (query-параметров через fastapi-filter).
         skip: Смещение (offset) для пагинации.
         limit: Максимальное число записей (limit) для пагинации.
         _current_user: Текущий активный пользователь.

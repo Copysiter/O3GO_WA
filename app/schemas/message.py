@@ -17,15 +17,15 @@ class MessageBase(BaseModel):
         None, description="Географическое положение аккаунта"
     )
     status: Optional[int] = Field(None, description="Статус сообщения")
-    create_ts: Optional[datetime] =  Field(
+    created_at: Optional[datetime] =  Field(
         default_factory=lambda: datetime.now(timezone.utc),
         description="Дата создания сообщения"
     )
-    create_ts: Optional[datetime] = Field(
+    sent_at: Optional[datetime] = Field(
         default_factory=lambda: datetime.now(timezone.utc),
         description="Дата отправки сообщения"
     )
-    update_ts: Optional[datetime] = Field(
+    updated_at: Optional[datetime] = Field(
         default_factory=lambda: datetime.now(timezone.utc),
         description="Последняя дата изменения сообщения"
     )
@@ -113,4 +113,4 @@ class MessageCreateResponse(BaseModel):
 
 class MessageStatusResponse(MessageCreateResponse):
     """Ответ при обновлении статуса сообщения."""
-    status: int = Field(..., description="Текущий статус сообщения")
+    status: str = Field(..., description="Текущий статус сообщения")

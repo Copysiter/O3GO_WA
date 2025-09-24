@@ -17,11 +17,11 @@ class SessionBase(BaseModel):
         None, description="Количество отправленных сообщений"
     )
     status: Optional[int] = Field(None, description="Статус аккаунта")
-    create_at: Optional[datetime] = Field(
+    created_at: Optional[datetime] = Field(
         default_factory=lambda: datetime.now(timezone.utc),
         description="Дата создания сессии аккаунта"
     )
-    update_at: Optional[datetime] = Field(
+    updated_at: Optional[datetime] = Field(
         default_factory=lambda: datetime.now(timezone.utc),
         description="Дата обновления сессии"
     )
