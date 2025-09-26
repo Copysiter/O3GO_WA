@@ -31,13 +31,14 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { apiFetch } from "@/lib/api"
 
-// Тип аккаунта
+// Тип аккаунта (как приходит с бэка)
 export type Account = {
   id: number
-  dst_number: string
-  type: string
-  status: string
-  reg_count: number
+  user_id: number
+  number: string
+  type: number
+  session_count: number
+  status: number
   created_at: string
   updated_at: string
   info_1: string
@@ -76,26 +77,29 @@ export const columns = [
     cell: (info) => <div className="font-medium">{info.getValue()}</div>,
   }),
 
-  columnHelper.accessor("dst_number", { header: "Номер телефона" }),
+  columnHelper.accessor("number", { header: "Номер" }),
+
   columnHelper.accessor("type", {
     header: "Тип",
     cell: (info) => {
       const type = info.getValue()
-      return <Badge variant={type === "Premium" ? "default" : "secondary"}>{type}</Badge>
+      return <Badge variant={type === 1 ? "default" : "secondary"}>{type === 1 ? "Premium" : "Standard"}</Badge>
     },
   }),
+
   columnHelper.accessor("status", {
     header: "Статус",
     cell: (info) => {
       const status = info.getValue()
       return (
-        <Badge variant={status === "Active" ? "default" : status === "Inactive" ? "secondary" : "destructive"}>
-          {status}
+        <Badge variant={status === 1 ? "default" : "destructive"}>
+          {status === 1 ? "Active" : "Inactive"}
         </Badge>
       )
     },
   }),
-  columnHelper.accessor("reg_count", { header: "Кол-во регистраций" }),
+
+  columnHelper.accessor("session_count", { header: "Кол-во сессий" }),
   columnHelper.accessor("created_at", { header: "Создано" }),
   columnHelper.accessor("updated_at", { header: "Обновлено" }),
 
@@ -133,7 +137,9 @@ export function AccountsTable() {
   useEffect(() => {
     setLoading(true)
     apiFetch("/accounts/")
-      .then((res) => setAccounts(res))
+      .then((res) => {
+        setAccounts(res.data) // данные напрямую как есть с бэка
+      })
       .catch((err) => console.error("Ошибка загрузки аккаунтов:", err))
       .finally(() => setLoading(false))
   }, [])

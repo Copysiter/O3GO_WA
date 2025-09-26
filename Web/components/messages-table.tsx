@@ -31,18 +31,29 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 
 export type Message = {
-  id: number
-  account_id: number
+  id: number | string
   dst_addr: string
   geo: string
   text: string
   status: string
-  created_at: string
+  created_at: string | null
   sent_at: string | null
-  updated_at: string
+  updated_at: string | null
 }
 
 const columnHelper = createColumnHelper<Message>()
+
+const formatDate = (val: string | null) => {
+  if (!val) return "-"
+  const d = new Date(val)
+  return d.toLocaleString("ru-RU", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  })
+}
 
 export const columns = [
   columnHelper.display({
@@ -73,7 +84,6 @@ export const columns = [
     cell: (info) => <div className="font-medium">{info.getValue()}</div>,
   }),
 
-  columnHelper.accessor("account_id", { header: "Account ID" }),
   columnHelper.accessor("dst_addr", { header: "Куда отправлено" }),
   columnHelper.accessor("geo", {
     header: "Гео",
@@ -91,12 +101,27 @@ export const columns = [
     header: "Статус",
     cell: (info) => {
       const status = info.getValue()
-      return <Badge variant={status === "Delivered" ? "outline" : "destructive"}>{status}</Badge>
+      return (
+        <Badge
+          variant={status === "Delivered" ? "default" : status === "Pending" ? "secondary" : "destructive"}
+        >
+          {status}
+        </Badge>
+      )
     },
   }),
-  columnHelper.accessor("created_at", { header: "Создано" }),
-  columnHelper.accessor("sent_at", { header: "Отправлено" }),
-  columnHelper.accessor("updated_at", { header: "Обновлено" }),
+  columnHelper.accessor("created_at", {
+    header: "Создано",
+    cell: (info) => formatDate(info.getValue()),
+  }),
+  columnHelper.accessor("sent_at", {
+    header: "Отправлено",
+    cell: (info) => formatDate(info.getValue()),
+  }),
+  columnHelper.accessor("updated_at", {
+    header: "Обновлено",
+    cell: (info) => formatDate(info.getValue()),
+  }),
 
   columnHelper.display({
     id: "actions",
@@ -109,10 +134,16 @@ export const columns = [
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end">
           <DropdownMenuLabel>Действия</DropdownMenuLabel>
-          <DropdownMenuItem><Eye className="mr-2 h-4 w-4" /> Вид</DropdownMenuItem>
-          <DropdownMenuItem><Edit className="mr-2 h-4 w-4" /> Редактировать</DropdownMenuItem>
+          <DropdownMenuItem>
+            <Eye className="mr-2 h-4 w-4" /> Вид
+          </DropdownMenuItem>
+          <DropdownMenuItem>
+            <Edit className="mr-2 h-4 w-4" /> Редактировать
+          </DropdownMenuItem>
           <DropdownMenuSeparator />
-          <DropdownMenuItem className="text-destructive"><Trash2 className="mr-2 h-4 w-4" /> Удалить</DropdownMenuItem>
+          <DropdownMenuItem className="text-destructive">
+            <Trash2 className="mr-2 h-4 w-4" /> Удалить
+          </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
     ),
@@ -132,7 +163,20 @@ export function MessagesTable() {
   useEffect(() => {
     fetch("http://localhost:8000/api/v1/messages/")
       .then((res) => res.json())
-      .then((data) => setMessages(data))
+      .then((res) => {
+        const data = Array.isArray(res) ? res : res.data || []
+        const mapped = data.map((msg: any, idx: number) => ({
+          id: msg.id ?? msg.session_id ?? `temp-${idx}`,
+          dst_addr: msg.number ?? "-",
+          geo: msg.geo ?? "-",
+          text: [msg.info_1, msg.info_2, msg.info_3].filter(Boolean).join(" ") || "-",
+          status: msg.status === 0 ? "Pending" : msg.status === 1 ? "Delivered" : "Failed",
+          created_at: msg.created_at ?? null,
+          sent_at: msg.sent_at ?? null,
+          updated_at: msg.updated_at ?? null,
+        }))
+        setMessages(mapped)
+      })
       .catch((err) => console.error("Ошибка загрузки сообщений:", err))
       .finally(() => setLoading(false))
   }, [])
@@ -194,24 +238,30 @@ export function MessagesTable() {
                 <TableRow key={headerGroup.id}>
                   {headerGroup.headers.map((header) => (
                     <TableHead key={header.id}>
-                      {header.isPlaceholder ? null : flexRender(header.column.columnDef.header, header.getContext())}
+                      {header.isPlaceholder
+                        ? null
+                        : flexRender(header.column.columnDef.header, header.getContext())}
                     </TableHead>
                   ))}
                 </TableRow>
               ))}
             </TableHeader>
             <TableBody>
-              {table.getRowModel().rows.length ? (
+              {table.getRowModel()?.rows?.length ? (
                 table.getRowModel().rows.map((row) => (
                   <TableRow key={row.id} data-state={row.getIsSelected() && "selected"}>
                     {row.getVisibleCells().map((cell) => (
-                      <TableCell key={cell.id}>{flexRender(cell.column.columnDef.cell, cell.getContext())}</TableCell>
+                      <TableCell key={cell.id}>
+                        {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                      </TableCell>
                     ))}
                   </TableRow>
                 ))
               ) : (
                 <TableRow>
-                  <TableCell colSpan={columns.length} className="h-24 text-center">Нет сообщений.</TableCell>
+                  <TableCell colSpan={columns.length} className="h-24 text-center">
+                    Нет сообщений.
+                  </TableCell>
                 </TableRow>
               )}
             </TableBody>

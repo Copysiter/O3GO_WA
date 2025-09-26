@@ -29,18 +29,36 @@ import { Input } from "@/components/ui/input"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
+import { apiFetch } from "@/lib/api"
 
-// Тип логов сессий (пример, замени на свой из бэка)
-export type SessionLog = {
+// тип данных сессии
+export type Session = {
   id: number
-  user_id: number
-  ip: string
-  device: string
-  status: string
-  created_at: string
+  account_id: number | null
+  ext_id: string | null
+  msg_count: number | null
+  status: number | null
+  created_at: string | null
+  updated_at: string | null
+  info_1: string | null
+  info_2: string | null
+  info_3: string | null
 }
 
-const columnHelper = createColumnHelper<SessionLog>()
+// helper для колонок
+const columnHelper = createColumnHelper<Session>()
+
+// форматирование даты
+const formatDate = (val: string | null) => {
+  if (!val) return "-"
+  return new Date(val).toLocaleString("ru-RU", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  })
+}
 
 export const columns = [
   columnHelper.display({
@@ -71,17 +89,32 @@ export const columns = [
     cell: (info) => <div className="font-medium">{info.getValue()}</div>,
   }),
 
-  columnHelper.accessor("user_id", { header: "User ID" }),
-  columnHelper.accessor("ip", { header: "IP" }),
-  columnHelper.accessor("device", { header: "Устройство" }),
+  columnHelper.accessor("account_id", { header: "Account ID" }),
+  columnHelper.accessor("ext_id", { header: "External ID" }),
+  columnHelper.accessor("msg_count", { header: "Messages" }),
   columnHelper.accessor("status", {
-    header: "Статус",
+    header: "Status",
     cell: (info) => {
       const status = info.getValue()
-      return <Badge variant={status === "Success" ? "default" : "destructive"}>{status}</Badge>
+      if (status === null) return <Badge variant="outline">Unknown</Badge>
+      return (
+        <Badge variant={status === 1 ? "default" : "destructive"}>
+          {status === 1 ? "Active" : "Inactive"}
+        </Badge>
+      )
     },
   }),
-  columnHelper.accessor("created_at", { header: "Создано" }),
+  columnHelper.accessor("created_at", {
+    header: "Created At",
+    cell: (info) => formatDate(info.getValue()),
+  }),
+  columnHelper.accessor("updated_at", {
+    header: "Updated At",
+    cell: (info) => formatDate(info.getValue()),
+  }),
+  columnHelper.accessor("info_1", { header: "Info 1" }),
+  columnHelper.accessor("info_2", { header: "Info 2" }),
+  columnHelper.accessor("info_3", { header: "Info 3" }),
 
   columnHelper.display({
     id: "actions",
@@ -105,7 +138,7 @@ export const columns = [
 ]
 
 export function SessionsLogsTable() {
-  const [logs, setLogs] = useState<SessionLog[]>([])
+  const [sessions, setSessions] = useState<Session[]>([])
   const [loading, setLoading] = useState(true)
 
   const [sorting, setSorting] = useState<SortingState>([])
@@ -115,15 +148,18 @@ export function SessionsLogsTable() {
   const [globalFilter, setGlobalFilter] = useState("")
 
   useEffect(() => {
-    fetch("http://localhost:8000/api/v1/sessionslogs/")
-      .then((res) => res.json())
-      .then((data) => setLogs(data))
-      .catch((err) => console.error("Ошибка загрузки логов:", err))
+    setLoading(true)
+    apiFetch("/sessions/")
+      .then((res) => {
+        // если API вернул { data: [...], total: N }
+        setSessions(res?.data ?? [])
+      })
+      .catch((err) => console.error("Ошибка загрузки sessions:", err))
       .finally(() => setLoading(false))
   }, [])
 
   const table = useReactTable({
-    data: logs,
+    data: sessions ?? [],
     columns,
     state: {
       sorting,
@@ -143,13 +179,13 @@ export function SessionsLogsTable() {
     getFilteredRowModel: getFilteredRowModel(),
   })
 
-  if (loading) return <div className="p-4">Загрузка логов...</div>
+  if (loading) return <div className="p-4">Загрузка сессий...</div>
 
   return (
     <Card>
       <CardHeader>
         <div className="flex items-center justify-between">
-          <CardTitle>Логи сессий</CardTitle>
+          <CardTitle>Sessions</CardTitle>
           <div className="flex gap-2">
             <Button variant="outline">
               <Download className="mr-2 h-4 w-4" />
@@ -164,7 +200,7 @@ export function SessionsLogsTable() {
         <div className="flex items-center gap-2 mt-2">
           <Search className="w-4 h-4 text-muted-foreground" />
           <Input
-            placeholder="Поиск логов..."
+            placeholder="Поиск..."
             value={globalFilter ?? ""}
             onChange={(e) => setGlobalFilter(e.target.value)}
             className="max-w-sm"
@@ -190,13 +226,15 @@ export function SessionsLogsTable() {
                 table.getRowModel().rows.map((row) => (
                   <TableRow key={row.id} data-state={row.getIsSelected() && "selected"}>
                     {row.getVisibleCells().map((cell) => (
-                      <TableCell key={cell.id}>{flexRender(cell.column.columnDef.cell, cell.getContext())}</TableCell>
+                      <TableCell key={cell.id}>
+                        {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                      </TableCell>
                     ))}
                   </TableRow>
                 ))
               ) : (
                 <TableRow>
-                  <TableCell colSpan={columns.length} className="h-24 text-center">Нет логов.</TableCell>
+                  <TableCell colSpan={columns.length} className="h-24 text-center">Нет данных.</TableCell>
                 </TableRow>
               )}
             </TableBody>
