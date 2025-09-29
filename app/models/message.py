@@ -17,7 +17,7 @@ class Message(Base):
         nullable=False, index=True
     )
     number: Mapped[str] = mapped_column(
-        String(64), nullable=False, index=True, unique=True
+        String(64), nullable=False, index=True
     )
     geo: Mapped[str] = mapped_column(
         String(64), nullable=True, index=True

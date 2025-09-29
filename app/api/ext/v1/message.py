@@ -20,8 +20,8 @@ async def create_message(
     *,
     db: AsyncSession = Depends(deps.get_db),
     session_id: int = Query(..., description="ID сессии аккаунта"),
-    number: str = Query(
-        ..., max_length=64, description="Номер аккаунта-получателя"
+    number: Optional[str] = Query(
+        None, max_length=64, description="Номер аккаунта-получателя"
     ),
     text: Optional[str] = Query(None, description="Текст сообщения"),
     info_1: Optional[str] = Query(
@@ -44,7 +44,7 @@ async def create_message(
 
     obj_in = schemas.MessageCreate(
         session_id=session_id,
-        number=number,
+        number=number if number else session.account.number,
         geo=get_geo_by_number(number),
         text=text,  # если не передан, сохранится NULL
         status=MessageStatus.CREATED,

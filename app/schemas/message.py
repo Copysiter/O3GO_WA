@@ -16,6 +16,9 @@ class MessageBase(BaseModel):
     geo: Optional[str] = Field(
         None, description="Географическое положение аккаунта"
     )
+    text: Optional[str] = Field(
+        None, description="Тест сообщения"
+    )
     status: Optional[int] = Field(None, description="Статус сообщения")
     created_at: Optional[datetime] =  Field(
         default_factory=lambda: datetime.now(timezone.utc),
