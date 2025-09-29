@@ -12,9 +12,10 @@ import { SessionsLogsTable } from "./session-logs-table"
 import { ThemeToggle } from "@/components/theme-toggle"
 
 const sidebarItems = [
-  { name: "Аккаунты", icon: Users },
-  { name: "Сообщения", icon: MessageSquare },
-  { name: "Данные по сессиям", icon: Activity },
+  { name: "WA Sessions", icon: Activity },
+  { name: "WA Accounts", icon: Users },
+  { name: "Messages", icon: MessageSquare },
+  { name: "Users", icon: Users },
 ]
 
 interface DashboardLayoutProps {
@@ -23,11 +24,11 @@ interface DashboardLayoutProps {
 
 export function DashboardLayout({ children }: DashboardLayoutProps) {
   const [sidebarOpen, setSidebarOpen] = useState(true)
-  const [activeItem, setActiveItem] = useState("Аккаунты")
+  const [activeItem, setActiveItem] = useState("WA Sessions")
   const [isMobile, setIsMobile] = useState(false)
-  const [isAuth, setIsAuth] = useState<boolean | null>(null) // null = загрузка
+  const [isAuth, setIsAuth] = useState<boolean | null>(null) // null = loading
 
-  // Проверка токена при загрузке
+  // Token check on load
   useEffect(() => {
     const token = localStorage.getItem("token")
     if (!token) {
@@ -35,10 +36,9 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
       return
     }
 
-    // Проверяем токен через API
-// Проверяем токен через API
+    // Verify token via API
     fetch(`${process.env.NEXT_PUBLIC_API_URL}/auth/test-token`, {
-      method: "POST", // ⚡ вместо GET
+      method: "POST", // ⚡ instead of GET
       headers: { Authorization: `Bearer ${token}` },
     })
       .then((res) => {
@@ -54,7 +54,7 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
       })
   }, [])
 
-  // Определяем мобильное устройство
+  // Detect mobile device
   useEffect(() => {
     const checkMobile = () => setIsMobile(window.innerWidth < 1024)
     checkMobile()
@@ -62,41 +62,49 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
     return () => window.removeEventListener("resize", checkMobile)
   }, [])
 
-  // Автоматически закрываем сайдбар на мобильных
+  // Auto-close sidebar on mobile
   useEffect(() => {
     setSidebarOpen(!isMobile)
   }, [isMobile])
 
   const renderContent = () => {
     switch (activeItem) {
-      case "Аккаунты":
+      case "WA Accounts":
         return <AccountsTable />
-      case "Сообщения":
+      case "Messages":
         return <MessagesTable />
-      case "Данные по сессиям":
+      case "WA Sessions":
         return <SessionsLogsTable />
+      case "Users":
+        // lazy import of Users table to avoid unused imports if not present
+        try {
+          // eslint-disable-next-line @typescript-eslint/no-var-requires
+          const UsersTable = require("./users-table").UsersTable
+          return <UsersTable />
+        } catch (e) {
+          return <div>Users module not available</div>
+        }
       default:
         return children || <AccountsTable />
     }
   }
 
-  // Форма логина
+  // Login redirect if not authorized
   if (isAuth === false) {
     window.location.href = "/login"
     return null
   }
-  
-  // Пока проверяем токен → спиннер
+
+  // While checking token → spinner
   if (isAuth === null) {
     return (
       <div className="flex h-screen items-center justify-center">
-        <span className="text-lg">Загрузка...</span>
+        <span className="text-lg">Loading...</span>
       </div>
     )
   }
 
-
-  // Авторизованный UI
+  // Authorized UI
   return (
     <div className="min-h-screen bg-background">
       {/* Topbar */}
@@ -112,17 +120,10 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
           </Button>
 
           <div className="flex-1 flex items-center space-x-4">
-            <h1 className="text-lg font-semibold hidden sm:block">AltronV2</h1>
+            <h1 className="text-lg font-semibold hidden sm:block">O3GO WA STATS</h1>
           </div>
 
           <div className="flex items-center space-x-2">
-            <Button variant="ghost" size="icon" className="hidden sm:flex">
-              <Bell className="h-4 w-4" />
-            </Button>
-            <Button variant="ghost" size="icon" className="hidden sm:flex">
-              <Settings className="h-4 w-4" />
-            </Button>
-
             <ThemeToggle />
 
             <Button
@@ -132,7 +133,7 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
                 setIsAuth(false)
               }}
             >
-              Выйти
+              Sign out
             </Button>
           </div>
         </div>
@@ -167,7 +168,7 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
           </nav>
         </aside>
 
-        {/* Overlay для мобильных */}
+        {/* Overlay for mobile */}
         {isMobile && sidebarOpen && (
           <div
             className="fixed inset-0 bg-background/80 backdrop-blur-sm z-30 lg:hidden"
@@ -181,7 +182,7 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
             <div className="flex items-center justify-between">
               <h2 className="text-xl font-semibold">{activeItem}</h2>
               <div className="text-sm text-muted-foreground hidden sm:block">
-                Последнее обновление: {new Date().toLocaleString()}
+                Last update: {new Date().toLocaleString()}
               </div>
             </div>
           </div>

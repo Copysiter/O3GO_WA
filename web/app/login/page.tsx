@@ -6,7 +6,6 @@ import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
 import { Label } from "@/components/ui/label"
-import { apiFetch } from "@/lib/api"
 
 export default function LoginPage() {
   const router = useRouter()
@@ -21,7 +20,7 @@ export default function LoginPage() {
     setError(null)
 
     try {
-      // здесь токен получаем напрямую, без автоматического Authorization
+      // here we get the token directly, without automatic Authorization
       const res = await fetch("http://localhost:8000/api/v1/auth/access-token", {
         method: "POST",
         body: new URLSearchParams({
@@ -34,13 +33,13 @@ export default function LoginPage() {
       }).then((r) => r.json())
 
       if (res.access_token) {
-        localStorage.setItem("token", res.access_token) // единый ключ
-        router.push("/") // редирект на главную
+        localStorage.setItem("token", res.access_token) // unified key
+        router.push("/") // redirect to main page
       } else {
-        setError("Неверный логин или пароль")
+        setError("Invalid username or password")
       }
     } catch (err) {
-      setError("Ошибка авторизации")
+      setError("Authorization error")
     } finally {
       setLoading(false)
     }
@@ -50,28 +49,28 @@ export default function LoginPage() {
     <div className="flex items-center justify-center min-h-screen bg-black text-white">
       <Card className="w-full max-w-sm border border-white/30 bg-black text-white">
         <CardHeader>
-          <CardTitle className="text-center text-xl">Авторизация</CardTitle>
+          <CardTitle className="text-center text-xl">Sign in</CardTitle>
         </CardHeader>
         <CardContent>
           <form onSubmit={handleSubmit} className="space-y-4">
             <div>
-              <Label htmlFor="login">Логин</Label>
+              <Label htmlFor="login">Username</Label>
               <Input
                 id="login"
                 value={login}
                 onChange={(e) => setLogin(e.target.value)}
-                placeholder="Введите логин"
+                placeholder="Enter username"
                 className="bg-black text-white border-white"
               />
             </div>
             <div>
-              <Label htmlFor="password">Пароль</Label>
+              <Label htmlFor="password">Password</Label>
               <Input
                 id="password"
                 type="password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                placeholder="Введите пароль"
+                placeholder="Enter password"
                 className="bg-black text-white border-white"
               />
             </div>
@@ -79,7 +78,7 @@ export default function LoginPage() {
             {error && <p className="text-red-500 text-sm">{error}</p>}
 
             <Button type="submit" className="w-full" disabled={loading}>
-              {loading ? "Входим..." : "Войти"}
+              {loading ? "Signing in..." : "Sign in"}
             </Button>
           </form>
         </CardContent>

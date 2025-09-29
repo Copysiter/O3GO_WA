@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useCallback } from "react"
 import {
   flexRender,
   getCoreRowModel,
@@ -13,7 +13,7 @@ import {
   type ColumnFiltersState,
   type VisibilityState,
 } from "@tanstack/react-table"
-import { ArrowUpDown, MoreHorizontal, Eye, Edit, Trash2, Search, Download, Plus } from "lucide-react"
+import { ArrowUpDown, MoreHorizontal, Eye, Edit, Trash2, Search, RefreshCw } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
@@ -26,15 +26,17 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { Input } from "@/components/ui/input"
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
+import { formatAccountStatus } from "@/lib/enums"
+import { DataTable } from "@/components/table/data-table"
+import { DataTableToolbar } from "@/components/table/data-table-toolbar"
 import { apiFetch } from "@/lib/api"
 
-// тип данных сессии
 export type Session = {
   id: number
   account_id: number | null
+  account?: { number?: string }
   ext_id: string | null
   msg_count: number | null
   status: number | null
@@ -45,19 +47,11 @@ export type Session = {
   info_3: string | null
 }
 
-// helper для колонок
 const columnHelper = createColumnHelper<Session>()
 
-// форматирование даты
 const formatDate = (val: string | null) => {
   if (!val) return "-"
-  return new Date(val).toLocaleString("ru-RU", {
-    day: "2-digit",
-    month: "2-digit",
-    year: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  })
+  return new Date(val).toISOString().replace("T", " ").substring(0, 19)
 }
 
 export const columns = [
@@ -67,14 +61,14 @@ export const columns = [
       <Checkbox
         checked={table.getIsAllPageRowsSelected() || (table.getIsSomePageRowsSelected() && "indeterminate")}
         onCheckedChange={(value) => table.toggleAllPageRowsSelected(!!value)}
-        aria-label="Выбрать все"
+  aria-label="Select all"
       />
     ),
     cell: ({ row }) => (
       <Checkbox
         checked={row.getIsSelected()}
         onCheckedChange={(value) => row.toggleSelected(!!value)}
-        aria-label="Выберите строку"
+  aria-label="Select row"
       />
     ),
   }),
@@ -89,27 +83,56 @@ export const columns = [
     cell: (info) => <div className="font-medium">{info.getValue()}</div>,
   }),
 
-  columnHelper.accessor("account_id", { header: "Account ID" }),
-  columnHelper.accessor("ext_id", { header: "External ID" }),
-  columnHelper.accessor("msg_count", { header: "Messages" }),
-  columnHelper.accessor("status", {
-    header: "Status",
+  columnHelper.accessor("account", {
+    header: ({ column }) => (
+      <Button variant="ghost" onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}>
+        Account
+        <ArrowUpDown className="ml-2 h-4 w-4" />
+      </Button>
+    ),
     cell: (info) => {
-      const status = info.getValue()
-      if (status === null) return <Badge variant="outline">Unknown</Badge>
-      return (
-        <Badge variant={status === 1 ? "default" : "destructive"}>
-          {status === 1 ? "Active" : "Inactive"}
-        </Badge>
-      )
+      const acc = info.getValue() as any
+      return <div>{acc?.number ?? "-"}</div>
+    },
+  }),
+  columnHelper.accessor("ext_id", { header: "External ID" }),
+  columnHelper.accessor("msg_count", {
+    header: ({ column }) => (
+      <Button variant="ghost" onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}>
+        Messages
+        <ArrowUpDown className="ml-2 h-4 w-4" />
+      </Button>
+    ),
+  }),
+  columnHelper.accessor("status", {
+    header: ({ column }) => (
+      <Button variant="ghost" onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}>
+        Status
+        <ArrowUpDown className="ml-2 h-4 w-4" />
+      </Button>
+    ),
+    cell: (info) => {
+      const status = info.getValue() as number | null
+      const mapped = formatAccountStatus(status)
+      return <Badge variant={mapped.variant as any}>{mapped.label}</Badge>
     },
   }),
   columnHelper.accessor("created_at", {
-    header: "Created At",
+    header: ({ column }) => (
+      <Button variant="ghost" onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}>
+        Created
+        <ArrowUpDown className="ml-2 h-4 w-4" />
+      </Button>
+    ),
     cell: (info) => formatDate(info.getValue()),
   }),
   columnHelper.accessor("updated_at", {
-    header: "Updated At",
+    header: ({ column }) => (
+      <Button variant="ghost" onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}>
+        Updated
+        <ArrowUpDown className="ml-2 h-4 w-4" />
+      </Button>
+    ),
     cell: (info) => formatDate(info.getValue()),
   }),
   columnHelper.accessor("info_1", { header: "Info 1" }),
@@ -126,11 +149,11 @@ export const columns = [
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end">
-          <DropdownMenuLabel>Действия</DropdownMenuLabel>
-          <DropdownMenuItem><Eye className="mr-2 h-4 w-4" /> Вид</DropdownMenuItem>
-          <DropdownMenuItem><Edit className="mr-2 h-4 w-4" /> Редактировать</DropdownMenuItem>
+          <DropdownMenuLabel>Actions</DropdownMenuLabel>
+          <DropdownMenuItem><Eye className="mr-2 h-4 w-4" /> View</DropdownMenuItem>
+          <DropdownMenuItem><Edit className="mr-2 h-4 w-4" /> Edit</DropdownMenuItem>
           <DropdownMenuSeparator />
-          <DropdownMenuItem className="text-destructive"><Trash2 className="mr-2 h-4 w-4" /> Удалить</DropdownMenuItem>
+          <DropdownMenuItem className="text-destructive"><Trash2 className="mr-2 h-4 w-4" /> Delete</DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
     ),
@@ -146,17 +169,42 @@ export function SessionsLogsTable() {
   const [columnVisibility, setColumnVisibility] = useState<VisibilityState>({})
   const [rowSelection, setRowSelection] = useState({})
   const [globalFilter, setGlobalFilter] = useState("")
+  const [pageIndex, setPageIndex] = useState(0)
+
+  const buildOrderBy = (sorting: SortingState) => {
+    return sorting.map((s) => (s.desc ? `-${s.id}` : `${s.id}`)).join("&order_by=")
+  }
+
+  const loadData = useCallback(async (pageIndex: number = 0, sortingState: SortingState = []) => {
+    setLoading(true)
+    try {
+      const orderBy = sortingState && sortingState.length ? `&order_by=${buildOrderBy(sortingState)}` : ""
+      const res = await apiFetch(`/sessions/?skip=${pageIndex * 10}&limit=10${orderBy}`)
+      const data = res?.data || res?.results || []
+      const mapped = (data || []).map((s: any) => ({
+        id: s.id,
+        account_id: s.account_id,
+        account: s.account ?? { number: s.account_number ?? null },
+        ext_id: s.ext_id,
+        msg_count: s.msg_count,
+        status: s.status,
+        created_at: s.created_at,
+        updated_at: s.updated_at,
+        info_1: s.info_1,
+        info_2: s.info_2,
+        info_3: s.info_3,
+      }))
+      setSessions(mapped)
+    } catch (err) {
+      console.error("Error loading sessions:", err)
+    } finally {
+      setLoading(false)
+    }
+  }, [])
 
   useEffect(() => {
-    setLoading(true)
-    apiFetch("/sessions/")
-      .then((res) => {
-        // если API вернул { data: [...], total: N }
-        setSessions(res?.data ?? [])
-      })
-      .catch((err) => console.error("Ошибка загрузки sessions:", err))
-      .finally(() => setLoading(false))
-  }, [])
+    loadData(pageIndex, sorting)
+  }, [loadData, pageIndex, sorting])
 
   const table = useReactTable({
     data: sessions ?? [],
@@ -169,6 +217,13 @@ export function SessionsLogsTable() {
       globalFilter,
     },
     onSortingChange: setSorting,
+    onStateChange: (updater) => {
+      try {
+        const s = typeof updater === 'function' ? updater({} as any) : updater
+        const page = (s as any).pagination?.pageIndex ?? 0
+        setPageIndex(page)
+      } catch (e) {}
+    },
     onColumnFiltersChange: setColumnFilters,
     onColumnVisibilityChange: setColumnVisibility,
     onRowSelectionChange: setRowSelection,
@@ -179,92 +234,32 @@ export function SessionsLogsTable() {
     getFilteredRowModel: getFilteredRowModel(),
   })
 
-  if (loading) return <div className="p-4">Загрузка сессий...</div>
+  if (loading) return <div className="p-4">Loading sessions...</div>
 
   return (
     <Card>
       <CardHeader>
         <div className="flex items-center justify-between">
-          <CardTitle>Sessions</CardTitle>
-          <div className="flex gap-2">
-            <Button variant="outline">
-              <Download className="mr-2 h-4 w-4" />
-              Экспорт
-            </Button>
-            <Button>
-              <Plus className="mr-2 h-4 w-4" />
-              Добавить
-            </Button>
+          <CardTitle>WA Sessions</CardTitle>
+          <div className="flex items-center gap-2">
+            <Search className="w-4 h-4 text-muted-foreground" />
+            <Input
+              placeholder="Search..."
+              value={globalFilter ?? ""}
+              onChange={(e) => setGlobalFilter(e.target.value)}
+              className="max-w-sm"
+            />
           </div>
-        </div>
-        <div className="flex items-center gap-2 mt-2">
-          <Search className="w-4 h-4 text-muted-foreground" />
-          <Input
-            placeholder="Поиск..."
-            value={globalFilter ?? ""}
-            onChange={(e) => setGlobalFilter(e.target.value)}
-            className="max-w-sm"
-          />
         </div>
       </CardHeader>
       <CardContent>
-        <div className="rounded-md border overflow-x-auto">
-          <Table>
-            <TableHeader>
-              {table.getHeaderGroups().map((headerGroup) => (
-                <TableRow key={headerGroup.id}>
-                  {headerGroup.headers.map((header) => (
-                    <TableHead key={header.id}>
-                      {header.isPlaceholder ? null : flexRender(header.column.columnDef.header, header.getContext())}
-                    </TableHead>
-                  ))}
-                </TableRow>
-              ))}
-            </TableHeader>
-            <TableBody>
-              {table.getRowModel().rows.length ? (
-                table.getRowModel().rows.map((row) => (
-                  <TableRow key={row.id} data-state={row.getIsSelected() && "selected"}>
-                    {row.getVisibleCells().map((cell) => (
-                      <TableCell key={cell.id}>
-                        {flexRender(cell.column.columnDef.cell, cell.getContext())}
-                      </TableCell>
-                    ))}
-                  </TableRow>
-                ))
-              ) : (
-                <TableRow>
-                  <TableCell colSpan={columns.length} className="h-24 text-center">Нет данных.</TableCell>
-                </TableRow>
-              )}
-            </TableBody>
-          </Table>
-        </div>
-
-        {/* пагинация */}
-        <div className="flex items-center justify-between mt-4">
-          <div className="text-sm text-muted-foreground">
-            Страница {table.getState().pagination.pageIndex + 1} из {table.getPageCount()}
-          </div>
-          <div className="flex gap-2">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => table.previousPage()}
-              disabled={!table.getCanPreviousPage()}
-            >
-              Назад
+        <DataTable table={table}>
+          <DataTableToolbar table={table}>
+            <Button variant="outline" size="sm" onClick={() => loadData(table.getState().pagination.pageIndex, table.getState().sorting)}>
+              <RefreshCw className="mr-2 h-4 w-4" /> Refresh
             </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => table.nextPage()}
-              disabled={!table.getCanNextPage()}
-            >
-              Вперёд
-            </Button>
-          </div>
-        </div>
+          </DataTableToolbar>
+        </DataTable>
       </CardContent>
     </Card>
   )

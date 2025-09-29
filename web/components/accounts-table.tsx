@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useCallback } from "react"
 import {
   flexRender,
   getCoreRowModel,
@@ -13,7 +13,7 @@ import {
   type ColumnFiltersState,
   type VisibilityState,
 } from "@tanstack/react-table"
-import { ArrowUpDown, MoreHorizontal, Eye, Edit, Trash2, Search, Download, Plus } from "lucide-react"
+import { ArrowUpDown, MoreHorizontal, Eye, Edit, Trash2, Search, RefreshCw } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
@@ -30,11 +30,15 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { apiFetch } from "@/lib/api"
+import { formatAccountStatus, formatAccountType } from "@/lib/enums"
+import { DataTable } from "@/components/table/data-table"
+import { DataTableToolbar } from "@/components/table/data-table-toolbar"
 
-// Тип аккаунта (как приходит с бэка)
+// Account type (API response)
 export type Account = {
   id: number
   user_id: number
+  user?: { name?: string }
   number: string
   type: number
   session_count: number
@@ -48,6 +52,7 @@ export type Account = {
 
 const columnHelper = createColumnHelper<Account>()
 
+// --- COLUMNS (без изменений кроме перевода на английский) ---
 export const columns = [
   columnHelper.display({
     id: "select",
@@ -55,14 +60,14 @@ export const columns = [
       <Checkbox
         checked={table.getIsAllPageRowsSelected() || (table.getIsSomePageRowsSelected() && "indeterminate")}
         onCheckedChange={(value) => table.toggleAllPageRowsSelected(!!value)}
-        aria-label="Выбрать все"
+        aria-label="Select all"
       />
     ),
     cell: ({ row }) => (
       <Checkbox
         checked={row.getIsSelected()}
         onCheckedChange={(value) => row.toggleSelected(!!value)}
-        aria-label="Выберите строку"
+        aria-label="Select row"
       />
     ),
   }),
@@ -77,31 +82,78 @@ export const columns = [
     cell: (info) => <div className="font-medium">{info.getValue()}</div>,
   }),
 
-  columnHelper.accessor("number", { header: "Номер" }),
+  columnHelper.accessor("number", {
+    header: ({ column }) => (
+      <Button variant="ghost" onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}>
+        Number
+        <ArrowUpDown className="ml-2 h-4 w-4" />
+      </Button>
+    ),
+  }),
 
   columnHelper.accessor("type", {
-    header: "Тип",
+    header: "Type",
     cell: (info) => {
-      const type = info.getValue()
-      return <Badge variant={type === 1 ? "default" : "secondary"}>{type === 1 ? "Premium" : "Standard"}</Badge>
+      const type = info.getValue() as number
+      return <Badge variant={type === 1 ? "default" : "secondary"}>{formatAccountType(type)}</Badge>
+    },
+  }),
+
+  columnHelper.accessor("user", {
+    header: "User",
+    cell: (info) => {
+      const user = info.getValue() as any
+      return <div>{user?.name ?? "-"}</div>
     },
   }),
 
   columnHelper.accessor("status", {
-    header: "Статус",
+    header: ({ column }) => (
+      <Button variant="ghost" onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}>
+        Status
+        <ArrowUpDown className="ml-2 h-4 w-4" />
+      </Button>
+    ),
     cell: (info) => {
-      const status = info.getValue()
-      return (
-        <Badge variant={status === 1 ? "default" : "destructive"}>
-          {status === 1 ? "Active" : "Inactive"}
-        </Badge>
-      )
+      const status = info.getValue() as number
+      const mapped = formatAccountStatus(status)
+      return <Badge variant={mapped.variant as any}>{mapped.label}</Badge>
     },
   }),
 
-  columnHelper.accessor("session_count", { header: "Кол-во сессий" }),
-  columnHelper.accessor("created_at", { header: "Создано" }),
-  columnHelper.accessor("updated_at", { header: "Обновлено" }),
+  columnHelper.accessor("session_count", { header: "Sessions" }),
+  columnHelper.accessor("session_count", {
+    header: ({ column }) => (
+      <Button variant="ghost" onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}>
+        Sessions
+        <ArrowUpDown className="ml-2 h-4 w-4" />
+      </Button>
+    ),
+  }),
+  columnHelper.accessor("created_at", {
+    header: ({ column }) => (
+      <Button variant="ghost" onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}>
+        Created
+        <ArrowUpDown className="ml-2 h-4 w-4" />
+      </Button>
+    ),
+    cell: (info) => {
+      const v = info.getValue() as string
+      return <div>{v ? new Date(v).toISOString().replace('T', ' ').substring(0, 19) : '-'}</div>
+    },
+  }),
+  columnHelper.accessor("updated_at", {
+    header: ({ column }) => (
+      <Button variant="ghost" onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}>
+        Updated
+        <ArrowUpDown className="ml-2 h-4 w-4" />
+      </Button>
+    ),
+    cell: (info) => {
+      const v = info.getValue() as string
+      return <div>{v ? new Date(v).toISOString().replace('T', ' ').substring(0, 19) : '-'}</div>
+    },
+  }),
 
   columnHelper.display({
     id: "actions",
@@ -113,11 +165,11 @@ export const columns = [
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end">
-          <DropdownMenuLabel>Действия</DropdownMenuLabel>
-          <DropdownMenuItem><Eye className="mr-2 h-4 w-4" /> Вид</DropdownMenuItem>
-          <DropdownMenuItem><Edit className="mr-2 h-4 w-4" /> Редактировать</DropdownMenuItem>
+          <DropdownMenuLabel>Actions</DropdownMenuLabel>
+          <DropdownMenuItem><Eye className="mr-2 h-4 w-4" /> View</DropdownMenuItem>
+          <DropdownMenuItem><Edit className="mr-2 h-4 w-4" /> Edit</DropdownMenuItem>
           <DropdownMenuSeparator />
-          <DropdownMenuItem className="text-destructive"><Trash2 className="mr-2 h-4 w-4" /> Удалить</DropdownMenuItem>
+          <DropdownMenuItem className="text-destructive"><Trash2 className="mr-2 h-4 w-4" /> Delete</DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
     ),
@@ -133,16 +185,30 @@ export function AccountsTable() {
   const [columnVisibility, setColumnVisibility] = useState<VisibilityState>({})
   const [rowSelection, setRowSelection] = useState({})
   const [globalFilter, setGlobalFilter] = useState("")
+  const [pageIndex, setPageIndex] = useState(0)
+
+  const buildOrderBy = (sorting: SortingState) => {
+    return sorting
+      .map((s) => (s.desc ? `-${s.id}` : `${s.id}`))
+      .join("&order_by=")
+  }
+
+  const fetchAccounts = useCallback(async (pageIndex: number = 0, sortingState: SortingState = []) => {
+    try {
+      setLoading(true)
+      const orderBy = sortingState && sortingState.length ? `&order_by=${buildOrderBy(sortingState)}` : ""
+      const res = await apiFetch(`/accounts/?skip=${pageIndex * 10}&limit=10${orderBy}`)
+      setAccounts(res.data)
+    } catch (err) {
+      console.error("Failed to load accounts:", err)
+    } finally {
+      setLoading(false)
+    }
+  }, [])
 
   useEffect(() => {
-    setLoading(true)
-    apiFetch("/accounts/")
-      .then((res) => {
-        setAccounts(res.data) // данные напрямую как есть с бэка
-      })
-      .catch((err) => console.error("Ошибка загрузки аккаунтов:", err))
-      .finally(() => setLoading(false))
-  }, [])
+    fetchAccounts(pageIndex, sorting)
+  }, [fetchAccounts, pageIndex, sorting])
 
   const table = useReactTable({
     data: accounts,
@@ -155,6 +221,16 @@ export function AccountsTable() {
       globalFilter,
     },
     onSortingChange: setSorting,
+    onStateChange: (updater) => {
+      // updater can be function or state; normalize
+      try {
+        const s = typeof updater === 'function' ? updater({} as any) : updater
+        const page = (s as any).pagination?.pageIndex ?? 0
+        setPageIndex(page)
+      } catch (e) {
+        // ignore
+      }
+    },
     onColumnFiltersChange: setColumnFilters,
     onColumnVisibilityChange: setColumnVisibility,
     onRowSelectionChange: setRowSelection,
@@ -165,90 +241,32 @@ export function AccountsTable() {
     getFilteredRowModel: getFilteredRowModel(),
   })
 
-  if (loading) return <div className="p-4">Загрузка аккаунтов...</div>
+  if (loading) return <div className="p-4">Loading accounts...</div>
 
   return (
     <Card>
       <CardHeader>
         <div className="flex items-center justify-between">
-          <CardTitle>Аккаунты</CardTitle>
-          <div className="flex gap-2">
-            <Button variant="outline">
-              <Download className="mr-2 h-4 w-4" />
-              Экспорт
-            </Button>
-            <Button>
-              <Plus className="mr-2 h-4 w-4" />
-              Добавить
-            </Button>
+          <CardTitle>WA Accounts</CardTitle>
+          <div className="flex items-center gap-2">
+            <Search className="w-4 h-4 text-muted-foreground" />
+            <Input
+              placeholder="Search accounts..."
+              value={globalFilter ?? ""}
+              onChange={(e) => setGlobalFilter(e.target.value)}
+              className="max-w-sm"
+            />
           </div>
-        </div>
-        <div className="flex items-center gap-2 mt-2">
-          <Search className="w-4 h-4 text-muted-foreground" />
-          <Input
-            placeholder="Поиск аккаунтов..."
-            value={globalFilter ?? ""}
-            onChange={(e) => setGlobalFilter(e.target.value)}
-            className="max-w-sm"
-          />
         </div>
       </CardHeader>
       <CardContent>
-        <div className="rounded-md border overflow-x-auto">
-          <Table>
-            <TableHeader>
-              {table.getHeaderGroups().map((headerGroup) => (
-                <TableRow key={headerGroup.id}>
-                  {headerGroup.headers.map((header) => (
-                    <TableHead key={header.id}>
-                      {header.isPlaceholder ? null : flexRender(header.column.columnDef.header, header.getContext())}
-                    </TableHead>
-                  ))}
-                </TableRow>
-              ))}
-            </TableHeader>
-            <TableBody>
-              {table.getRowModel().rows.length ? (
-                table.getRowModel().rows.map((row) => (
-                  <TableRow key={row.id} data-state={row.getIsSelected() && "selected"}>
-                    {row.getVisibleCells().map((cell) => (
-                      <TableCell key={cell.id}>{flexRender(cell.column.columnDef.cell, cell.getContext())}</TableCell>
-                    ))}
-                  </TableRow>
-                ))
-              ) : (
-                <TableRow>
-                  <TableCell colSpan={columns.length} className="h-24 text-center">Нет данных.</TableCell>
-                </TableRow>
-              )}
-            </TableBody>
-          </Table>
-        </div>
-
-        {/* пагинация */}
-        <div className="flex items-center justify-between mt-4">
-          <div className="text-sm text-muted-foreground">
-            Страница {table.getState().pagination.pageIndex + 1} из {table.getPageCount()}
-          </div>
-          <div className="flex gap-2">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => table.previousPage()}
-              disabled={!table.getCanPreviousPage()}
-            >
-              Назад
+        <DataTable table={table}>
+          <DataTableToolbar table={table}>
+            <Button variant="outline" size="sm" onClick={() => fetchAccounts(table.getState().pagination.pageIndex, table.getState().sorting)}>
+              <RefreshCw className="mr-2 h-4 w-4" /> Refresh
             </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => table.nextPage()}
-              disabled={!table.getCanNextPage()}
-            >
-              Вперёд
-            </Button>
-          </div>
-        </div>
+          </DataTableToolbar>
+        </DataTable>
       </CardContent>
     </Card>
   )
