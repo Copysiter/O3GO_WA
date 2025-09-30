@@ -44,15 +44,7 @@ async def create_message(
 
     obj_in = schemas.MessageCreate(
         session_id=session_id,
-<<<<<<< HEAD
         number=number if number else session.account.number,
-=======
-<<<<<<< HEAD
-        number=number,
-=======
-        number=number if number else session.account.number,
->>>>>>> e416d50b342788e71775e9cb18a76a07d968f678
->>>>>>> 57f91f3 (fix: geo detection  add + prefix for parse-only; normalize phone in frontend; other small UI tweaks)
         geo=get_geo_by_number(number),
         text=text,  # если не передан, сохранится NULL
         status=MessageStatus.CREATED,
