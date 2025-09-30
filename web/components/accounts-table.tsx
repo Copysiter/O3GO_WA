@@ -1,17 +1,17 @@
 "use client"
 
-import { useState, useEffect, useCallback } from "react"
+import { useState, useEffect, useCallback, useMemo } from "react"
 import {
-  flexRender,
-  getCoreRowModel,
-  getFilteredRowModel,
-  getPaginationRowModel,
-  getSortedRowModel,
   useReactTable,
   createColumnHelper,
+  getCoreRowModel,
+  getPaginationRowModel,
+  getSortedRowModel,
+  getFilteredRowModel,
   type SortingState,
   type ColumnFiltersState,
   type VisibilityState,
+  type PaginationState,
 } from "@tanstack/react-table"
 import { ArrowUpDown, MoreHorizontal, Eye, Edit, Trash2, Search, RefreshCw } from "lucide-react"
 
@@ -26,7 +26,6 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { Input } from "@/components/ui/input"
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { apiFetch } from "@/lib/api"
@@ -52,132 +51,9 @@ export type Account = {
 
 const columnHelper = createColumnHelper<Account>()
 
-// --- COLUMNS (без изменений кроме перевода на английский) ---
-export const columns = [
-  columnHelper.display({
-    id: "select",
-    header: ({ table }) => (
-      <Checkbox
-        checked={table.getIsAllPageRowsSelected() || (table.getIsSomePageRowsSelected() && "indeterminate")}
-        onCheckedChange={(value) => table.toggleAllPageRowsSelected(!!value)}
-        aria-label="Select all"
-      />
-    ),
-    cell: ({ row }) => (
-      <Checkbox
-        checked={row.getIsSelected()}
-        onCheckedChange={(value) => row.toggleSelected(!!value)}
-        aria-label="Select row"
-      />
-    ),
-  }),
-
-  columnHelper.accessor("id", {
-    header: ({ column }) => (
-      <Button variant="ghost" onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}>
-        ID
-        <ArrowUpDown className="ml-2 h-4 w-4" />
-      </Button>
-    ),
-    cell: (info) => <div className="font-medium">{info.getValue()}</div>,
-  }),
-
-  columnHelper.accessor("number", {
-    header: ({ column }) => (
-      <Button variant="ghost" onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}>
-        Number
-        <ArrowUpDown className="ml-2 h-4 w-4" />
-      </Button>
-    ),
-  }),
-
-  columnHelper.accessor("type", {
-    header: "Type",
-    cell: (info) => {
-      const type = info.getValue() as number
-      return <Badge variant={type === 1 ? "default" : "secondary"}>{formatAccountType(type)}</Badge>
-    },
-  }),
-
-  columnHelper.accessor("user", {
-    header: "User",
-    cell: (info) => {
-      const user = info.getValue() as any
-      return <div>{user?.name ?? "-"}</div>
-    },
-  }),
-
-  columnHelper.accessor("status", {
-    header: ({ column }) => (
-      <Button variant="ghost" onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}>
-        Status
-        <ArrowUpDown className="ml-2 h-4 w-4" />
-      </Button>
-    ),
-    cell: (info) => {
-      const status = info.getValue() as number
-      const mapped = formatAccountStatus(status)
-      return <Badge variant={mapped.variant as any}>{mapped.label}</Badge>
-    },
-  }),
-
-  columnHelper.accessor("session_count", { header: "Sessions" }),
-  columnHelper.accessor("session_count", {
-    header: ({ column }) => (
-      <Button variant="ghost" onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}>
-        Sessions
-        <ArrowUpDown className="ml-2 h-4 w-4" />
-      </Button>
-    ),
-  }),
-  columnHelper.accessor("created_at", {
-    header: ({ column }) => (
-      <Button variant="ghost" onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}>
-        Created
-        <ArrowUpDown className="ml-2 h-4 w-4" />
-      </Button>
-    ),
-    cell: (info) => {
-      const v = info.getValue() as string
-      return <div>{v ? new Date(v).toISOString().replace('T', ' ').substring(0, 19) : '-'}</div>
-    },
-  }),
-  columnHelper.accessor("updated_at", {
-    header: ({ column }) => (
-      <Button variant="ghost" onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}>
-        Updated
-        <ArrowUpDown className="ml-2 h-4 w-4" />
-      </Button>
-    ),
-    cell: (info) => {
-      const v = info.getValue() as string
-      return <div>{v ? new Date(v).toISOString().replace('T', ' ').substring(0, 19) : '-'}</div>
-    },
-  }),
-
-  columnHelper.display({
-    id: "actions",
-    cell: () => (
-      <DropdownMenu>
-        <DropdownMenuTrigger asChild>
-          <Button variant="ghost" className="h-8 w-8 p-0">
-            <MoreHorizontal className="h-4 w-4" />
-          </Button>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent align="end">
-          <DropdownMenuLabel>Actions</DropdownMenuLabel>
-          <DropdownMenuItem><Eye className="mr-2 h-4 w-4" /> View</DropdownMenuItem>
-          <DropdownMenuItem><Edit className="mr-2 h-4 w-4" /> Edit</DropdownMenuItem>
-          <DropdownMenuSeparator />
-          <DropdownMenuItem className="text-destructive"><Trash2 className="mr-2 h-4 w-4" /> Delete</DropdownMenuItem>
-        </DropdownMenuContent>
-      </DropdownMenu>
-    ),
-  }),
-]
-
 export function AccountsTable() {
-  const [accounts, setAccounts] = useState<Account[]>([])
+  const [data, setData] = useState<Account[]>([])
+  const [total, setTotal] = useState(0)
   const [loading, setLoading] = useState(true)
 
   const [sorting, setSorting] = useState<SortingState>([])
@@ -185,63 +61,187 @@ export function AccountsTable() {
   const [columnVisibility, setColumnVisibility] = useState<VisibilityState>({})
   const [rowSelection, setRowSelection] = useState({})
   const [globalFilter, setGlobalFilter] = useState("")
-  const [pageIndex, setPageIndex] = useState(0)
+  const [{ pageIndex, pageSize }, setPagination] = useState<PaginationState>({
+    pageIndex: 0,
+    pageSize: 10,
+  })
 
-  const buildOrderBy = (sorting: SortingState) => {
-    return sorting
-      .map((s) => (s.desc ? `-${s.id}` : `${s.id}`))
-      .join("&order_by=")
-  }
+  const buildOrderBy = (sorting: SortingState) =>
+    sorting.map((s) => (s.desc ? `-${s.id}` : `${s.id}`)).join(",")
 
-  const fetchAccounts = useCallback(async (pageIndex: number = 0, sortingState: SortingState = []) => {
-    try {
+  const fetchAccounts = useCallback(
+    async (page = 0, size = 10, sortingState: SortingState = [], filter = "") => {
       setLoading(true)
-      const orderBy = sortingState && sortingState.length ? `&order_by=${buildOrderBy(sortingState)}` : ""
-      const res = await apiFetch(`/accounts/?skip=${pageIndex * 10}&limit=10${orderBy}`)
-      setAccounts(res.data)
-    } catch (err) {
-      console.error("Failed to load accounts:", err)
-    } finally {
-      setLoading(false)
-    }
-  }, [])
+      try {
+        const orderBy = sortingState.length ? `&order_by=${buildOrderBy(sortingState)}` : ""
+        const search = filter ? `&q=${filter}` : ""
+        const res = await apiFetch(`/accounts/?skip=${page * size}&limit=${size}${orderBy}${search}`)
+        const result = res.data ?? res.items ?? res
+        const count = res.total ?? result.length
+        setData(Array.isArray(result) ? result : [])
+        setTotal(count)
+      } catch (err) {
+        console.error("Failed to load accounts:", err)
+        setData([])
+        setTotal(0)
+      } finally {
+        setLoading(false)
+      }
+    },
+    []
+  )
 
   useEffect(() => {
-    fetchAccounts(pageIndex, sorting)
-  }, [fetchAccounts, pageIndex, sorting])
+    fetchAccounts(pageIndex, pageSize, sorting, globalFilter)
+  }, [fetchAccounts, pageIndex, pageSize, sorting, globalFilter])
+
+  const columns = useMemo(
+    () => [
+      columnHelper.accessor("id", {
+        header: ({ column }) => (
+          <Button variant="ghost" onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}>
+            ID
+            <ArrowUpDown className="ml-2 h-4 w-4" />
+          </Button>
+        ),
+        cell: (info) => <div className="font-medium">{info.getValue()}</div>,
+        enableSorting: true,
+      }),
+
+      columnHelper.accessor("number", {
+        header: ({ column }) => (
+          <Button variant="ghost" onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}>
+            Number
+            <ArrowUpDown className="ml-2 h-4 w-4" />
+          </Button>
+        ),
+        enableSorting: true,
+      }),
+
+      columnHelper.accessor("type", {
+        header: "Type",
+        cell: (info) => {
+          const type = info.getValue()
+          return <Badge variant={type === 1 ? "default" : "secondary"}>{formatAccountType(type)}</Badge>
+        },
+      }),
+
+      columnHelper.accessor("user", {
+        header: "User",
+        cell: (info) => {
+          const user = info.getValue()
+          return <div>{user?.name ?? "-"}</div>
+        },
+      }),
+
+      columnHelper.accessor("status", {
+        header: ({ column }) => (
+          <Button variant="ghost" onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}>
+            Status
+            <ArrowUpDown className="ml-2 h-4 w-4" />
+          </Button>
+        ),
+        cell: (info) => {
+          const status = info.getValue()
+          const mapped = formatAccountStatus(status)
+          return <Badge variant={mapped.variant as any}>{mapped.label}</Badge>
+        },
+        enableSorting: true,
+      }),
+
+      columnHelper.accessor("session_count", {
+        header: ({ column }) => (
+          <Button variant="ghost" onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}>
+            Sessions
+            <ArrowUpDown className="ml-2 h-4 w-4" />
+          </Button>
+        ),
+        enableSorting: true,
+      }),
+
+      columnHelper.accessor("created_at", {
+        header: ({ column }) => (
+          <Button variant="ghost" onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}>
+            Created
+            <ArrowUpDown className="ml-2 h-4 w-4" />
+          </Button>
+        ),
+        cell: (info) => {
+          const v = info.getValue()
+          return <div>{v ? new Date(v).toISOString().replace("T", " ").substring(0, 19) : "-"}</div>
+        },
+        enableSorting: true,
+      }),
+
+      columnHelper.accessor("updated_at", {
+        header: ({ column }) => (
+          <Button variant="ghost" onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}>
+            Updated
+            <ArrowUpDown className="ml-2 h-4 w-4" />
+          </Button>
+        ),
+        cell: (info) => {
+          const v = info.getValue()
+          return <div>{v ? new Date(v).toISOString().replace("T", " ").substring(0, 19) : "-"}</div>
+        },
+        enableSorting: true,
+      }),
+
+      columnHelper.display({
+        id: "actions",
+        cell: () => (
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="ghost" className="h-8 w-8 p-0">
+                <MoreHorizontal className="h-4 w-4" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuLabel>Actions</DropdownMenuLabel>
+              <DropdownMenuItem>
+                <Eye className="mr-2 h-4 w-4" /> View
+              </DropdownMenuItem>
+              <DropdownMenuItem>
+                <Edit className="mr-2 h-4 w-4" /> Edit
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem className="text-destructive">
+                <Trash2 className="mr-2 h-4 w-4" /> Delete
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        ),
+      }),
+    ],
+    []
+  )
 
   const table = useReactTable({
-    data: accounts,
+    data,
     columns,
+    pageCount: Math.ceil(total / pageSize),
     state: {
       sorting,
       columnFilters,
       columnVisibility,
       rowSelection,
       globalFilter,
+      pagination: { pageIndex, pageSize },
     },
     onSortingChange: setSorting,
-    onStateChange: (updater) => {
-      // updater can be function or state; normalize
-      try {
-        const s = typeof updater === 'function' ? updater({} as any) : updater
-        const page = (s as any).pagination?.pageIndex ?? 0
-        setPageIndex(page)
-      } catch (e) {
-        // ignore
-      }
-    },
     onColumnFiltersChange: setColumnFilters,
     onColumnVisibilityChange: setColumnVisibility,
     onRowSelectionChange: setRowSelection,
     onGlobalFilterChange: setGlobalFilter,
+    onPaginationChange: setPagination,
     getCoreRowModel: getCoreRowModel(),
     getPaginationRowModel: getPaginationRowModel(),
     getSortedRowModel: getSortedRowModel(),
     getFilteredRowModel: getFilteredRowModel(),
+    manualPagination: true,
+    manualSorting: true,
+    manualFiltering: true,
   })
-
-  if (loading) return <div className="p-4">Loading accounts...</div>
 
   return (
     <Card>
@@ -262,7 +262,11 @@ export function AccountsTable() {
       <CardContent>
         <DataTable table={table}>
           <DataTableToolbar table={table}>
-            <Button variant="outline" size="sm" onClick={() => fetchAccounts(table.getState().pagination.pageIndex, table.getState().sorting)}>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => fetchAccounts(pageIndex, pageSize, sorting, globalFilter)}
+            >
               <RefreshCw className="mr-2 h-4 w-4" /> Refresh
             </Button>
           </DataTableToolbar>

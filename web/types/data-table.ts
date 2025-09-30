@@ -14,3 +14,10 @@ export interface ExtendedColumnFilter<TData = any> {
   operator: FilterOperator
   value: any
 }
+
+export type User = {
+  id: number
+  name: string
+  login: string
+  created_at: string
+}

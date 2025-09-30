@@ -10,7 +10,7 @@ export function formatAccountStatus(status: number | null | undefined) {
     case -1:
       return { label: "Banned", variant: "destructive" }
     default:
-      return { label: "Unknown", variant: "outline" }
+      return { label: `Unknown (${status})`, variant: "outline" }
   }
 }
 
