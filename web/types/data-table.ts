@@ -13,6 +13,12 @@ export interface ExtendedColumnFilter<TData = any> {
   id: string
   operator: FilterOperator
   value: any
+  variant?: FilterVariant
+}
+
+export interface ExtendedColumnSort<TData = any> {
+  id: Extract<keyof TData, string>
+  desc: boolean
 }
 
 export type User = {
