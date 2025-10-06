@@ -17,11 +17,11 @@ class SessionBase(BaseModel):
         None, description="Количество отправленных сообщений"
     )
     status: Optional[int] = Field(None, description="Статус аккаунта")
-    create_at: Optional[datetime] = Field(
+    created_at: Optional[datetime] = Field(
         default_factory=lambda: datetime.now(timezone.utc),
         description="Дата создания сессии аккаунта"
     )
-    update_at: Optional[datetime] = Field(
+    updated_at: Optional[datetime] = Field(
         default_factory=lambda: datetime.now(timezone.utc),
         description="Дата обновления сессии"
     )
@@ -98,6 +98,7 @@ class SessionFilter(Filter):
 
 class SessionStatusResponse(BaseModel):
     """Ответ при изменении статуса сессии аккаунта."""
-    id: str = Field(..., description="Внешний идентификатор сессии")
+    id: int = Field(..., description="Идентификатор сессии")
+    ext_id: str = Field(..., description="Внешний идентификатор сессии")
     number: str = Field(..., description="Номер аккаунта")
     status: int = Field(..., description="Текущий статус сессии аккаунта")

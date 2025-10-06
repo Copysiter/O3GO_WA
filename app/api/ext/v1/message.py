@@ -1,4 +1,4 @@
-from typing import Optional
+from typing import Optional, Literal
 
 from fastapi import APIRouter, Query, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -6,6 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 import app.deps as deps
 import app.crud as crud, app.models as models, app.schemas as schemas
 from app.schemas.enum import MessageStatus
+from app.utils.geo import get_geo_by_number
 
 
 router = APIRouter()
@@ -19,51 +20,53 @@ router = APIRouter()
 async def create_message(
     *,
     db: AsyncSession = Depends(deps.get_db),
-    session_id: int = Query(..., description="ID сессии аккаунта"),
-    number: str = Query(
-        ..., max_length=64, description="Номер аккаунта-получателя"
+    session_id: Optional[int] = Query(None, description="ID сессии аккаунта"),
+    session_ext_id: Optional[str] = Query(
+        None, description="Внешний ID сессии аккаунта"
+    ),
+    number: Optional[str] = Query(
+        None, max_length=64, description="Номер аккаунта-получателя"
     ),
     text: Optional[str] = Query(None, description="Текст сообщения"),
     info_1: Optional[str] = Query(
-        None, max_length=256, description="Метаинформация 1"
+        None, max_length=256, description="Служебное инфо поле 1"
     ),
     info_2: Optional[str] = Query(
-        None, max_length=256, description="Метаинформация 2"\
-            ),
+        None, max_length=256, description="Служебное инфо поле 2"
+    ),
     info_3: Optional[str] = Query(
-        None, max_length=256, description="Метаинформация 3"
+        None, max_length=256, description="Служебное инфо поле 3"
     ),
-    status_: int = Query(
-        MessageStatus.CREATED, description="Начальный статус сообщения"
-    ),
-    user: models.User = Depends(deps.get_user_by_api_key)
 ) -> schemas.MessageCreateResponse:
-    """
-    Создаёт сообщение.
+    """Создаёт новое сообщение, привязанное к сессии."""
+    if session_id:
+        session = await crud.session.get(db, session_id)
+    elif session_ext_id:
+        session = await crud.session.get_by(db, ext_id=session_ext_id)
+    else:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Missing required field: 'session_id' or 'session_ext_id'."
+        )
+    if not session:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Session with id={session_id} not found",
+        )
 
-    Принимает идентификатор сессии, номер получателя и опциональные поля
-    (`text`, `info_1..3`). Поле `status_` необязательно; по умолчанию
-    используется `MessageStatus.CREATED`.
+    obj_in = schemas.MessageCreate(
+        session_id=session.id,
+        number=number if number else session.account.number,
+        geo=get_geo_by_number(number),
+        text=text,  # если не передан, сохранится NULL
+        status=MessageStatus.CREATED,
+        info_1=info_1,
+        info_2=info_2,
+        info_3=info_3,
+    )
 
-    Args:
-        db: Асинхронная сессия SQLAlchemy.
-        session_id: Идентификатор сессии-владельца сообщения.
-        number: Номер получателя сообщения.
-        text: Текст сообщения (опционально).
-        info_1: Произвольная метка 1 (опционально).
-        info_2: Произвольная метка 2 (опционально).
-        info_3: Произвольная метка 3 (опционально).
-        status_: Начальный статус сообщения (по умолчанию CREATED).
-        user: Авторизованный пользователь (по API-ключу).
-
-    Returns:
-        MessageCreateResponse: Идентификатор созданного сообщения.
-
-    Raises:
-        HTTPException: 501 — функционал не реализован.
-    """
-    # TODO: реализовать создание сообщения (использовать CRUD, валидации и т.д.)
-    raise HTTPException(status_code=501, detail="Not implemented")
+    message = await crud.message.create(db=db, obj_in=obj_in)
+    return schemas.MessageCreateResponse(id=message.id)
 
 
 @router.get(
@@ -75,27 +78,26 @@ async def update_message_status(
     *,
     db: AsyncSession = Depends(deps.get_db),
     id: int = Query(..., description="ID сообщения"),
-    status: int = Query(..., description="Новый статус сообщения"),
-    user: models.User = Depends(deps.get_user_by_api_key)
+    status: Literal[
+        'waiting', 'sent', 'delivered', 'undelivered', 'failed'
+    ] = Query(..., description="Новый статус сообщения"),
+    user: models.User = Depends(deps.get_user_by_api_key),
 ) -> schemas.MessageStatusResponse:
-    """
-    Обновляет статус сообщения.
+    """Обновляет статус сообщения."""
+    message = await crud.message.get(db, id)
+    if not message or message.session.account.user_id != user.id:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Message with id={id} not found",
+        )
+    new_status = getattr(
+        schemas.MessageStatus, status.upper(), message.status
+    )
+    message = await crud.message.update(
+        db, db_obj=message, obj_in={"status": new_status}
+    )
 
-    Принимает `id` сообщения и новый `status_` (оба — через query-параметры).
-
-    Args:
-        db: Асинхронная сессия SQLAlchemy.
-        id: Идентификатор сообщения.
-        status: Новый статус сообщения.
-        user: Авторизованный пользователь (по API-ключу).
-
-    Returns:
-        MessageStatusOut: Подтверждение с `id` и текущим статусом.
-
-    Raises:
-        HTTPException:
-            404 — если сообщение не найдено (после реализации логики);
-            501 — функционал не реализован (сейчас).
-    """
-    # TODO: реализовать обновление статуса (поиск сообщения, проверка статуса, сохранение)
-    raise HTTPException(status_code=501, detail="Not implemented")
+    return schemas.MessageStatusResponse(
+        id=message.id,
+        status=schemas.MessageStatus(message.status).name.lower()
+    )

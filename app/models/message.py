@@ -17,12 +17,12 @@ class Message(Base):
         nullable=False, index=True
     )
     number: Mapped[str] = mapped_column(
-        String(64), nullable=False, index=True, unique=True
+        String(64), nullable=False, index=True
     )
     geo: Mapped[str] = mapped_column(
-        String(64), index=True
+        String(64), nullable=True, index=True
     )
-    text: Mapped[str] = mapped_column(Text)
+    text: Mapped[str] = mapped_column(Text, nullable=True)
     status: Mapped[MessageStatus] = mapped_column(
         SmallInteger,
         default=MessageStatus.CREATED, nullable=False, index=True
@@ -44,4 +44,6 @@ class Message(Base):
     info_2 = Column(String(256), nullable=True, index=True)
     info_3 = Column(String(256), nullable=True, index=True)
 
-    session = relationship("Session", back_populates="messages")
+    session = relationship(
+        "Session", back_populates="messages", lazy="selectin"
+    )

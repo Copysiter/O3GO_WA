@@ -1,4 +1,5 @@
 from .token import Token, TokenTest, TokenPayload  # noqa
+from .enum import AccountStatus, MessageStatus
 from .user import (  # noqa
     User, UserCreate, UserInDB, UserUpdate,  # noqa
     UserList, UserFilter  # noqa

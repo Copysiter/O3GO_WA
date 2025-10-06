@@ -6,6 +6,7 @@ greenlet==3.2.3
 SQLAlchemy==2.0.41
 SQLAlchemy-Utils==0.41.2
 asyncpg==0.30.0
+phonenumbers
 orjson==3.10.18
 packaging==25.0
 pydantic==2.11.4
