@@ -10,6 +10,13 @@ class AccountStatus(IntEnum):
     PAUSED    = 2
 
 
+class SessionStatus(IntEnum):
+    BANNED    = -1
+    FINISHED = 0
+    ACTIVE    = 1
+    PAUSED    = 2
+
+
 class MessageStatus(IntEnum):
     WAITING     = -1
     CREATED     = 0

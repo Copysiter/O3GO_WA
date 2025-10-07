@@ -69,25 +69,25 @@ class UserList(BaseModel):
 
 class UserFilter(Filter):
     """Фильтр для поиска пользователей по различным полям модели"""
-    id__eq: int | None = None
+    id: int | None = None
     id__in: list[int] | None = None
     id__gt: int | None = None
     id__lt: int | None = None
 
-    name__eq: str | None = None
+    name: str | None = None
     name__in: list[str] | None = None
     name__like: str | None = None
 
-    login__eq: str | None = None
+    login: str | None = None
     login__in: list[str] | None = None
     login__like: str | None = None
 
-    x_api_key__eq: str | None = None
+    x_api_key: str | None = None
     x_api_key__in: list[str] | None = None
     x_api_key__like: str | None = None
 
-    is_active__eq: bool | None = None
-    is_superuser__eq: bool | None = None
+    is_active: bool | None = None
+    is_superuser: bool | None = None
 
     order_by: Optional[list[str]] = None
 

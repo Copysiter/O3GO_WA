@@ -29,13 +29,13 @@
 Примеры фильтров
 ----------------
 По строковому полю `login`:
-- Равенство (eq):           `GET /users?login__eq=alex`
+- Равенство (eq):           `GET /users?login=alex`
 - Вхождение (in):           `GET /users?login__in=alex,ivan,petr`
 - Подстрока (like/ilike):   `GET /users?login__like=%al%`
                             `GET /users?login__ilike=%al%`(регистр-независимо)
 
 По числовому полю `id`:
-- Равенство:               `GET /users?id__eq=100`
+- Равенство:               `GET /users?id=100`
 - Вхождение:               `GET /users?id__in=1,2,3`
 
 По датам:

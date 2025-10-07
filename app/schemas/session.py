@@ -68,25 +68,25 @@ class SessionList(BaseModel):
 
 class SessionFilter(Filter):
     """Фильтр для поиска сессии аккаунтов по различным полям модели"""
-    id__eq: int | None = None
+    id: int | None = None
     id__in: list[int] | None = None
     id__gt: int | None = None
     id__lt: int | None = None
 
-    account_id__eq: int | None = None
+    account_id: int | None = None
     account_id__in: list[int] | None = None
 
-    status__eq: AccountStatus | None = None
+    status: AccountStatus | None = None
     status__in: list[AccountStatus] | None = None
 
     msg_count__gt: int | None = None
     msg_count__lt: int | None = None
 
-    created_at__eq: datetime | None = None
+    created_at: datetime | None = None
     created_at__gte: datetime | None = None
     created_at__lte: datetime | None = None
 
-    updated_at__eq: datetime | None = None
+    updated_at: datetime | None = None
     updated_at__gte: datetime | None = None
     updated_at__lte: datetime | None = None
     order_by: Optional[list[str]] = None
@@ -101,4 +101,4 @@ class SessionStatusResponse(BaseModel):
     id: int = Field(..., description="Идентификатор сессии")
     ext_id: str = Field(..., description="Внешний идентификатор сессии")
     number: str = Field(..., description="Номер аккаунта")
-    status: int = Field(..., description="Текущий статус сессии аккаунта")
+    status: str = Field(..., description="Текущий статус сессии аккаунта")

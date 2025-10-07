@@ -73,32 +73,32 @@ class AccountList(BaseModel):
 
 class AccountFilter(Filter):
     """Фильтр для поиска аккаунтов по различным полям модели"""
-    id__eq: int | None = None
+    id: int | None = None
     id__in: list[int] | None = None
     id__gt: int | None = None
     id__lt: int | None = None
 
-    user_id__eq: int | None = None
+    user_id: int | None = None
     user_id__in: list[int] | None = None
 
-    type__eq: int | None = None
+    type: int | None = None
     type__in: list[int] | None = None
 
-    number__eq: int | None = None
+    number: int | None = None
     number__in: list[int] | None = None
     number__like: str | None = None
 
-    status__eq: AccountStatus | None = None
+    status: AccountStatus | None = None
     status__in: list[AccountStatus] | None = None
 
     session_count__gt: int | None = None
     session_count__lt: int | None = None
 
-    created_at__eq: datetime | None = None
+    created_at: datetime | None = None
     created_at__gte: datetime | None = None
     created_at__lte: datetime | None = None
 
-    updated_at__eq: datetime | None = None
+    updated_at: datetime | None = None
     updated_at__gte: datetime | None = None
     updated_at__lte: datetime | None = None
     order_by: Optional[list[str]] = None

@@ -27,7 +27,7 @@
 Примеры фильтров
 ----------------
 По текстовому полю `ext_id`:
-- Равенство (eq):         `GET /sessions?ext_id__eq=12345`
+- Равенство (eq):         `GET /sessions?ext_id=12345`
 - Вхождение (in):         `GET /sessions?ext_id__in=100,200,300`
 - Подстрока (like/ilike): `GET /sessions?ext_id__like=%123%`
                           `GET /sessions?ext_id__ilike=%123%`
@@ -36,7 +36,7 @@
   (`%` — любой набор символов, `_` — один символ).
 
 Другие примеры:
-- По аккаунту:        `GET /sessions?account__eq=42`
+- По аккаунту:        `GET /sessions?account=42`
 - По статусам:            `GET /sessions?status__in=1,2`
 - По дате создания:       `GET /sessions?created_at__gte=2025-09-01T00:00:00Z`
 """
@@ -85,7 +85,7 @@ async def read_sessions(
 
     Примеры:
         - `GET /sessions?status__in=1,2&order_by=-id`
-        - `GET /sessions?account_id__eq=42&order_by=created_at&order_by=-id`
+        - `GET /sessions?account_id=42&order_by=created_at&order_by=-id`
     """
     if not getattr(f, "order_by", None):
         f.order_by = ["-id"]

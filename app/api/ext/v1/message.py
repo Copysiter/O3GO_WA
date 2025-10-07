@@ -94,7 +94,7 @@ async def update_message_status(
         schemas.MessageStatus, status.upper(), message.status
     )
     message = await crud.message.update(
-        db, db_obj=message, obj_in={"status": new_status}
+        db, db_obj=message, obj_in=schemas.MessageUpdate(status=new_status)
     )
 
     return schemas.MessageStatusResponse(

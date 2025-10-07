@@ -27,7 +27,7 @@
 Примеры фильтров
 ----------------
 По текстовому полю `number`:
-- Равенство (eq):         `GET /messages?number__eq=12345`
+- Равенство (eq):         `GET /messages?number=12345`
 - Вхождение (in):         `GET /messages?number__in=100,200,300`
 - Подстрока (like/ilike): `GET /messages?number__like=%123%`
                           `GET /messages?number__ilike=%123%`
@@ -36,7 +36,7 @@
   (`%` — любой набор символов, `_` — один символ).
 
 Другие примеры:
-- По пользователю:        `GET /messages?user_id__eq=42`
+- По пользователю:        `GET /messages?user_id=42`
 - По статусам:            `GET /messages?status__in=1,2`
 - По дате создания:       `GET /messages?created_at__gte=2025-09-01T00:00:00Z`
 """
@@ -85,7 +85,7 @@ async def read_messages(
 
     Примеры:
         - `GET /messages?status__in=1,2&order_by=-id`
-        - `GET /messages?user_id__eq=42&order_by=created_at&order_by=-id`
+        - `GET /messages?user_id=42&order_by=created_at&order_by=-id`
     """
     if not getattr(f, "order_by", None):
         f.order_by = ["-id"]
