@@ -119,14 +119,14 @@ async def create_account(
     Returns:
         Созданный объект `schemas.Account` (HTTP 201).
     """
-    db_obj = await crud.account.get_by(db, number=obj_in.number)
-    if db_obj:
+    account = await crud.account.get_by(db, number=obj_in.number)
+    if account:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail='The account with this number already exists'
         )
-    db_obj = await crud.account.create(db=db, obj_in=obj_in)
-    return db_obj
+    account = await crud.account.create(db=db, obj_in=obj_in)
+    return account
 
 
 @router.put('/{id}', response_model=schemas.Account)
@@ -151,14 +151,14 @@ async def update_account(
     Returns:
         Обновлённый объект `schemas.Account`.
     """
-    db_obj = await crud.account.get(db=db, id=id)
-    if not db_obj:
+    account = await crud.account.get(db=db, id=id)
+    if not account:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail='The account with this ID does not exist'
         )
-    db_obj = await crud.account.update(db=db, db_obj=obj_in, obj_in=obj_in)
-    return db_obj
+    account = await crud.account.update(db=db, db_obj=obj_in, obj_in=obj_in)
+    return account
 
 
 @router.get('/{id}', response_model=schemas.Account)
@@ -182,13 +182,13 @@ async def read_account(
     Raises:
         HTTPException(404): Если аккаунт не найден.
     """
-    db_obj = await crud.account.get(db=db, id=id)
-    if not db_obj:
+    account = await crud.account.get(db=db, id=id)
+    if not account:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail='The account with this ID does not exist'
         )
-    return db_obj
+    return account
 
 
 @router.delete('/{id}', response_model=schemas.Account)
@@ -212,11 +212,11 @@ async def delete_account(
     Raises:
         HTTPException(404): Если аккаунт не найден.
     """
-    db_obj = await crud.account.get(db=db, id=id)
-    if not db_obj:
+    account = await crud.account.get(db=db, id=id)
+    if not account:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail='The account with this ID does not exist'
         )
-    db_obj = await crud.account.delete(db=db, id=id)
-    return db_obj
+    account = await crud.account.delete(db=db, id=id)
+    return account

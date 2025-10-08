@@ -91,9 +91,9 @@ async def read_users(
     """
     if not getattr(f, "order_by", None):
         f.order_by = ["-id"]
-    users = await crud.user.list(db, filter=f, skip=skip, limit=limit)
+    data = await crud.user.list(db, filter=f, skip=skip, limit=limit)
     count = await crud.user.count(db, filter=f)
-    return {'data': users, 'total': count}
+    return {'data': data, 'total': count}
 
 
 @router.post(

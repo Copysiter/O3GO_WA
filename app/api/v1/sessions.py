@@ -119,14 +119,14 @@ async def create_session(
     Returns:
         Созданный объект `schemas.Session` (HTTP 201).
     """
-    db_obj = await crud.session.get_by(db, number=obj_in.number)
-    if db_obj:
+    session = await crud.session.get_by(db, ext_id=obj_in.ext_id)
+    if session:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail='The session with this number already exists'
+            detail='The session with this ext_id already exists'
         )
-    db_obj = await crud.session.create(db=db, obj_in=obj_in)
-    return db_obj
+    session = await crud.session.create(db=db, obj_in=obj_in)
+    return session
 
 
 @router.put('/{id}', response_model=schemas.Session)
@@ -151,13 +151,13 @@ async def update_session(
     Returns:
         Обновлённый объект `schemas.Session`.
     """
-    db_obj = await crud.session.get(db=db, id=id)
-    if not db_obj:
+    session = await crud.session.get(db=db, id=id)
+    if not session:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail='The session with this ID does not exist'
         )
-    db_obj = await crud.session.update(db=db, db_obj=obj_in, obj_in=obj_in)
+    db_obj = await crud.session.update(db=db, db_obj=session, obj_in=obj_in)
     return db_obj
 
 
@@ -182,13 +182,13 @@ async def read_session(
     Raises:
         HTTPException(404): Если сессия аккаунта не найдена.
     """
-    db_obj = await crud.session.get(db=db, id=id)
-    if not db_obj:
+    session = await crud.session.get(db=db, id=id)
+    if not session:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail='The session with this ID does not exist'
         )
-    return db_obj
+    return session
 
 
 @router.delete('/{id}', response_model=schemas.Session)
@@ -212,8 +212,8 @@ async def delete_session(
     Raises:
         HTTPException(404): Если сессия аккаунта не найдена.
     """
-    db_obj = await crud.session.get(db=db, id=id)
-    if not db_obj:
+    session = await crud.session.get(db=db, id=id)
+    if not session:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail='The session with this ID does not exist'

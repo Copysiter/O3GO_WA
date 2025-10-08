@@ -119,14 +119,8 @@ async def create_message(
     Returns:
         Созданный объект `schemas.Message` (HTTP 201).
     """
-    db_obj = await crud.message.get_by(db, number=obj_in.number)
-    if db_obj:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail='The message with this number already exists'
-        )
-    db_obj = await crud.message.create(db=db, obj_in=obj_in)
-    return db_obj
+    message = await crud.message.create(db=db, obj_in=obj_in)
+    return message
 
 
 @router.put('/{id}', response_model=schemas.Message)
@@ -182,13 +176,13 @@ async def read_message(
     Raises:
         HTTPException(404): Если сообщение не найдено.
     """
-    db_obj = await crud.message.get(db=db, id=id)
-    if not db_obj:
+    message = await crud.message.get(db=db, id=id)
+    if not message:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail='The message with this ID does not exist'
         )
-    return db_obj
+    return message
 
 
 @router.delete('/{id}', response_model=schemas.Message)
@@ -212,8 +206,8 @@ async def delete_message(
     Raises:
         HTTPException(404): Если сообщение не найдено.
     """
-    db_obj = await crud.message.get(db=db, id=id)
-    if not db_obj:
+    message = await crud.message.get(db=db, id=id)
+    if not message:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail='The message with this ID does not exist'
