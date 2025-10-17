@@ -1,8 +1,12 @@
 // общий помощник для Kendo UI / React / Angular
 window.kendoToFastapiQuery = function(state) {
   const params = new URLSearchParams();
-  params.skip = state.skip
-  params.limit = state.limit
+
+  // пагинация
+  if (typeof state.skip === 'number' && typeof state.limit === 'number') {
+    params.set('skip', String(state.skip));
+    params.set('limit', String(state.limit));
+  }
 
   // сортировка
   if (Array.isArray(state.sort) && state.sort.length) {
@@ -67,6 +71,8 @@ window.kendoToFastapiQuery = function(state) {
   if (state.filter) {
     walk(state.filter);
   }
+
+  console.log(params);
 
   return params;
 }
