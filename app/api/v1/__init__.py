@@ -1,6 +1,6 @@
 from fastapi import APIRouter
 
-from . import base, auth, users, accounts, sessions, messages
+from . import base, auth, users, accounts, sessions, messages, options
 
 
 api_router = APIRouter()
@@ -22,4 +22,7 @@ api_router.include_router(
 )
 api_router.include_router(
     messages.router, prefix='/messages', tags=['Messages']
+)
+api_router.include_router(
+    options.router, prefix='/options', tags=['Options']
 )

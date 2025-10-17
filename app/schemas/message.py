@@ -77,18 +77,27 @@ class MessageList(BaseModel):
 class MessageFilter(Filter):
     """Фильтр для поиска сообщений по различным полям модели"""
     id: int | None = None
+    id__neq: int | None = None
     id__in: list[int] | None = None
     id__gt: int | None = None
     id__lt: int | None = None
 
     session_id: int | None = None
+    session_id__neq: list[int] | None = None
     session_id__in: list[int] | None = None
 
-    number: int | None = None
-    number__in: list[int] | None = None
-    number__like: str | None = None
+    number: str | None = None
+    number__neq: str | None = None
+    number__in: list[str] | None = None
+    number__ilike: str | None = None
+
+    geo: str | None = None
+    geo__neq: str | None = None
+    geo__in: list[str] | None = None
+    geo__ilike: str | None = None
 
     status: MessageStatus | None = None
+    status__neq: list[MessageStatus] | None = None
     status__in: list[MessageStatus] | None = None
 
     created_at: datetime | None = None
@@ -102,6 +111,7 @@ class MessageFilter(Filter):
     updated_at: datetime | None = None
     updated_at__gte: datetime | None = None
     updated_at__lte: datetime | None = None
+
     order_by: Optional[list[str]] = None
 
     class Constants(Filter.Constants):

@@ -16,4 +16,4 @@ from .message import (  # noqa
     Message, MessageCreate, MessageUpdate, MessageInDB,  # noqa
     MessageList, MessageFilter, MessageCreateResponse, MessageStatusResponse  # noqa
 )
-
+from .option import OptionInt, OptionStr, OptionBool  # noqa

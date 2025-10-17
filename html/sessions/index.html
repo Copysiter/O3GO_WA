@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html prefix="og: http://ogp.me/ns#" lang="en">
+    <head>
+        <title>O3GO Team</title>
+        <meta charset="UTF-8" />
+        <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+        <meta name="viewport" content="width=session-width, initial-scale=1.0" />
+        <link rel="icon" type="image/x-icon" href="../static/favicon.ico" />
+        <link href="../static/lib/bootstrap/css/bootstrap.css" rel="stylesheet" />
+        <link href="../static/lib/kendo/css/base.css" rel="stylesheet" />
+        <link href="../static/lib/kendo/css/kendo.r2.css" rel="stylesheet" />
+        <link href="../static/lib/material/style.css" rel="stylesheet" />
+        <link href="../static/lib/silk/famfamfam-silk.min.css" rel="stylesheet" />
+        <script src="../static/lib/jquery.min.js"></script>
+        <script src="../static/lib/kendo/js/kendo.all.min.js"></script>
+        <script src="../static/lib/kendo/js/jszip.min.js"></script>
+        <link href="../static/style.css" rel="stylesheet" />
+        <script src="../static/auth.js"></script>
+        <script src="../static/script.js"></script>
+        <script src="../static/filters.js"></script>
+    </head>
+    <body class="d-flex flex-column" data-id="sessions">
+        
+        <div id="appbar"></div>
+        <div class="flex-grow-1" id="app-root">
+            <div id="drawer">
+                <div id="content" class="position-relative d-flex flex-column p-8">
+                    <div id="sessions-toolbar"></div>
+                    <div class="position-relative flex-grow-1">
+                        <div
+                            id="sessions-grid"
+                            class="position-absolute h-100 w-100 d-flex flex-column"
+                        ></div>
+                    </div>
+               </div>
+            </div>
+        </div>
+        <div id="confirm-logout"></div>
+
+        <script src="js/toolbar.js"></script>
+        <script src="js/grid.js"></script>
+        <script type="text/javascript">
+            $(function() {
+                try {
+                    let { access_token, token_type } = window.isAuth;
+                    window.access_token = access_token;
+                    window.token_type = token_type;
+                    initToolbar();
+                    initGrid();
+                } catch (error) {
+                    console.warn(error);
+                }
+            });
+        </script>
+    
+    </body>
+</html>
