@@ -1,4 +1,4 @@
-window.api_base_url = `${document.location.hostname}:8000`
+window.api_base_url = `${document.location.hostname}:8880`
 
 window.getToken = function () {
     return JSON.parse(localStorage.getItem('token'));
