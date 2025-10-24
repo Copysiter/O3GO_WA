@@ -56,17 +56,9 @@ async def create_message(
             detail=f"Session with id={session_id} not found",
         )
 
-    try:
-        await crud.session.update(
-            db, id=session.id, obj_in={'msg_count': column('msg_count') + 1}
-        )
-    except Exception as e:
-        from  app.core.logger import logger, E
-        logger.exception(
-            "!!!!!!!!!!!!!", event=E.SYSTEM.API.ERROR, extra={
-                "error": {"type": type(e).__name__, "msg": str(e)},
-            }
-        )
+    await crud.session.update(
+        db, id=session.id, obj_in={'msg_count': column('msg_count') + 1}
+    )
 
     obj_in = schemas.MessageCreate(
         session_id=session.id,
