@@ -20,10 +20,9 @@ async def _update_session_status(
     *,
     user_id: str,
     number: str,
-    status: AccountStatus,
-    msg_count: int = 0,
+    status: AccountStatus
 ) -> schemas.SessionStatusResponse:
-    """Обновляет статус сессии, проверяя связанный аккаунт, и увеличивает msg_count при необходимости."""
+    """Обновляет статус сессии, проверяя связанный аккаунт."""
     if id:
         session = await crud.session.get(db, id)
     elif ext_id:
@@ -47,8 +46,6 @@ async def _update_session_status(
         )
 
     obj_in = schemas.SessionUpdate(status=status)
-    if msg_count > 0:
-        obj_in.msg_count = session.msg_count + msg_count
 
     session = await crud.session.update(db, db_obj=session, obj_in=obj_in)
     account = await crud.session.update(
@@ -60,7 +57,7 @@ async def _update_session_status(
         ext_id=session.ext_id,
         number=account.number,
         status=SessionStatus(session.status).name.lower(),
-        msg_count=session.msg_count,
+        msg_count=session.msg_count
     )
 
 
@@ -124,7 +121,7 @@ async def start_session(
         ext_id=session.ext_id,
         number=account.number,
         status=SessionStatus(session.status).name.lower(),
-        msg_count=session.msg_count,
+        msg_count=session.msg_count
     )
 
 
@@ -141,15 +138,12 @@ async def finish_session(
         None, description="Внешний ID сессии аккаунта"
     ),
     number: str = Query(..., max_length=64, description="Номер аккаунта"),
-    msg_count: int = Query(
-        0, ge=0, description="Количество сообщений, которое нужно прибавить"
-    ),
     user: models.User = Depends(deps.get_user_by_api_key),
 ) -> schemas.SessionStatusResponse:
-    """Помечает сессию как завершённую (AVAILABLE) и обновляет msg_count."""
+    """Помечает сессию как завершённую (AVAILABLE)."""
     return await _update_session_status(
         db, id=id, ext_id=ext_id, user_id=user.id, number=number,
-        status=AccountStatus.AVAILABLE, msg_count=msg_count
+        status=AccountStatus.AVAILABLE
     )
 
 
@@ -166,13 +160,10 @@ async def ban_session(
         None, description="Внешний ID сессии аккаунта"
     ),
     number: str = Query(..., max_length=64, description="Номер аккаунта"),
-    msg_count: int = Query(
-        0, ge=0, description="Количество сообщений, которое нужно прибавить"
-    ),
     user: models.User = Depends(deps.get_user_by_api_key),
 ) -> schemas.SessionStatusResponse:
-    """Помечает сессию как заблокированную (BANNED) и обновляет msg_count."""
+    """Помечает сессию как заблокированную (BANNED) и обновляет."""
     return await _update_session_status(
         db, id=id, ext_id=ext_id, user_id=user.id, number=number,
-        status=AccountStatus.BANNED, msg_count=msg_count
+        status=AccountStatus.BANNED
     )

@@ -254,11 +254,11 @@ window.initGrid = function() {
                         else if (item.status == 1) {
                             return "<span class='badge badge-sm k-badge k-badge-solid k-badge-md k-badge-rounded k-badge-primary'>SENT</span>"
                         }
-                        else if (item.status == 1) {
+                        else if (item.status == 2) {
                             return "<span class='badge badge-sm k-badge k-badge-solid k-badge-md k-badge-rounded k-badge-success'>DELIVERED</span>"
                         }
-                        else if (item.status == 2) {
-                            return "<span class='badge badge-sm k-badge k-badge-solid k-badge-md k-badge-rounded k-badge-warning'>DELIVERED</span>"
+                        else if (item.status == 3) {
+                            return "<span class='badge badge-sm k-badge k-badge-solid k-badge-md k-badge-rounded k-badge-warning'>UNDELIVERED</span>"
                         }
                         else if (item.status == 4) {
                             return "<span class='badge badge-sm k-badge k-badge-solid k-badge-md k-badge-rounded k-badge-error'>FAILED</span>"
@@ -276,10 +276,12 @@ window.initGrid = function() {
                             element.kendoDropDownList({
                                 animation: false,
                                 dataSource: [
-                                    {value: -1, text: "BANNED"},
-                                    {value: 0, text: "AVAILABLE"},
-                                    {value: 1, text: "ACTIVE"},
-                                    {value: 2, text: "PAUSED"}
+                                    {value: -1, text: "WAITING"},
+                                    {value: 0, text: "CREATED"},
+                                    {value: 1, text: "SENT"},
+                                    {value: 2, text: "DELIVERED"},
+                                    {value: 3, text: "UNDELIVERED"},
+                                    {value: 4, text: "FAILED"}
                                 ],
                                 dataTextField: "text",
                                 dataValueField: "value",

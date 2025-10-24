@@ -100,6 +100,21 @@ class SessionFilter(Filter):
     updated_at__gte: datetime | None = None
     updated_at__lte: datetime | None = None
 
+    info_1: str | None = None
+    info_1__neq: str | None = None
+    info_1__in: list[str] | None = None
+    info_1__ilike: str | None = None
+
+    info_2: str | None = None
+    info_2__neq: str | None = None
+    info_2__in: list[str] | None = None
+    info_2__ilike: str | None = None
+
+    info_3: str | None = None
+    info_3__neq: str | None = None
+    info_3__in: list[str] | None = None
+    info_3__ilike: str | None = None
+
     order_by: Optional[list[str]] = None
 
     class Constants(Filter.Constants):

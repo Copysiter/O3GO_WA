@@ -2,6 +2,8 @@ from typing import Optional, Literal
 
 from fastapi import APIRouter, Query, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm.sync import update
+from sqlalchemy import column
 
 import app.deps as deps
 import app.crud as crud, app.models as models, app.schemas as schemas
@@ -54,6 +56,18 @@ async def create_message(
             detail=f"Session with id={session_id} not found",
         )
 
+    try:
+        await crud.session.update(
+            db, id=session.id, obj_in={'msg_count': column('msg_count') + 1}
+        )
+    except Exception as e:
+        from  app.core.logger import logger, E
+        logger.exception(
+            "!!!!!!!!!!!!!", event=E.SYSTEM.API.ERROR, extra={
+                "error": {"type": type(e).__name__, "msg": str(e)},
+            }
+        )
+
     obj_in = schemas.MessageCreate(
         session_id=session.id,
         number=number if number else session.account.number,
@@ -66,6 +80,7 @@ async def create_message(
     )
 
     message = await crud.message.create(db=db, obj_in=obj_in)
+
     return schemas.MessageCreateResponse(id=message.id)
 
 
