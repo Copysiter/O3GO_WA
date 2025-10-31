@@ -214,7 +214,7 @@ window.initGrid = function() {
                 },
                 {
                     field: 'session',
-                    title: 'Session',
+                    title: 'Session (Ext ID)',
                     filterable: false,
                     template: "#: session.ext_id #"
                 },
