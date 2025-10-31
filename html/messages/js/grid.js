@@ -207,6 +207,18 @@ window.initGrid = function() {
                     },
                 },
                 {
+                    field: 'account',
+                    title: 'Account',
+                    filterable: false,
+                    template: "#: session.account.number #"
+                },
+                {
+                    field: 'session',
+                    title: 'Session',
+                    filterable: false,
+                    template: "#: session.ext_id #"
+                },
+                {
                     field: 'number',
                     title: 'SRC Number',
                     filterable: {
@@ -215,8 +227,7 @@ window.initGrid = function() {
                             showOperators: true,
                             operator: 'eq',
                         },
-                    },
-                    template: "#: session.account.number #"
+                    }
                 },
                 {
                     field: 'geo',
