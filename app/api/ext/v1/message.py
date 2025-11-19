@@ -38,7 +38,7 @@ async def create_message(
     ),
     info_3: Optional[str] = Query(
         None, max_length=256, description="Служебное инфо поле 3"
-    ),
+    )
 ) -> schemas.MessageCreateResponse:
     """Создаёт новое сообщение, привязанное к сессии."""
     if session_id:
@@ -68,7 +68,7 @@ async def create_message(
         status=MessageStatus.CREATED,
         info_1=info_1,
         info_2=info_2,
-        info_3=info_3,
+        info_3=info_3
     )
 
     message = await crud.message.create(db=db, obj_in=obj_in)
@@ -79,7 +79,7 @@ async def create_message(
 @router.get(
     "/status",
     response_model=schemas.MessageStatusResponse,
-    status_code=status.HTTP_200_OK,
+    status_code=status.HTTP_200_OK
 )
 async def update_message_status(
     *,
@@ -88,6 +88,15 @@ async def update_message_status(
     status: Literal[
         'waiting', 'sent', 'delivered', 'undelivered', 'failed'
     ] = Query(..., description="Новый статус сообщения"),
+    info_1: Optional[str] = Query(
+        None, max_length=256, description="Служебное инфо поле 1"
+    ),
+    info_2: Optional[str] = Query(
+        None, max_length=256, description="Служебное инфо поле 2"
+    ),
+    info_3: Optional[str] = Query(
+        None, max_length=256, description="Служебное инфо поле 3"
+    ),
     user: models.User = Depends(deps.get_user_by_api_key),
 ) -> schemas.MessageStatusResponse:
     """Обновляет статус сообщения."""
@@ -100,8 +109,12 @@ async def update_message_status(
     new_status = getattr(
         schemas.MessageStatus, status.upper(), message.status
     )
+    obj_in = schemas.MessageUpdate(status=new_status)
+    for info in ['info_1', 'info_2', 'info_3']:
+        if locals()[info] is not None:
+            setattr(obj_in, info, locals()[info])
     message = await crud.message.update(
-        db, db_obj=message, obj_in=schemas.MessageUpdate(status=new_status)
+        db, db_obj=message, obj_in=obj_in
     )
 
     return schemas.MessageStatusResponse(

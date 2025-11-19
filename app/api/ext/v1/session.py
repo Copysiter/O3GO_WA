@@ -20,6 +20,9 @@ async def _update_session_status(
     *,
     user_id: str,
     number: str,
+    info_1: Optional[str] = None,
+    info_2: Optional[str] = None,
+    info_3: Optional[str] = None,
     status: AccountStatus
 ) -> schemas.SessionStatusResponse:
     """Обновляет статус сессии, проверяя связанный аккаунт."""
@@ -46,6 +49,9 @@ async def _update_session_status(
         )
 
     obj_in = schemas.SessionUpdate(status=status)
+    for info in ['info_1', 'info_2', 'info_3']:
+        if locals()[info] is not None:
+            setattr(obj_in, info, locals()[info])
 
     session = await crud.session.update(db, db_obj=session, obj_in=obj_in)
     account = await crud.session.update(
@@ -73,6 +79,15 @@ async def start_session(
     number: str = Query(
         ..., max_length=64, description="Номер аккаунта/получателя"
     ),
+    info_1: Optional[str] = Query(
+        None, max_length=256, description="Служебное инфо поле 1"
+    ),
+    info_2: Optional[str] = Query(
+        None, max_length=256, description="Служебное инфо поле 2"
+    ),
+    info_3: Optional[str] = Query(
+        None, max_length=256, description="Служебное инфо поле 3"
+    ),
     user: models.User = Depends(deps.get_user_by_api_key),
 ) -> schemas.SessionStatusResponse:
     """
@@ -93,7 +108,12 @@ async def start_session(
     if account:
         account = await crud.account.update(
             db, db_obj=account,
-            obj_in=schemas.AccountUpdate(status=AccountStatus.ACTIVE)
+            obj_in=schemas.AccountUpdate(
+                status=AccountStatus.ACTIVE,
+                info_1=info_1,
+                info_2=info_2,
+                info_3=info_3
+            )
         )
         await crud.session.update(
             db, obj_in=schemas.SessionUpdate(status=SessionStatus.FINISHED),
@@ -105,14 +125,24 @@ async def start_session(
     else:
         account = await crud.account.create(
             db=db, obj_in=schemas.AccountCreate(
-                number=number, user_id=user.id, status=AccountStatus.ACTIVE
+                number=number,
+                user_id=user.id,
+                status=AccountStatus.ACTIVE,
+                info_1=info_1,
+                info_2=info_2,
+                info_3=info_3
             )
         )
 
     # Создаём новую сессию
     session = await crud.session.create(
         db=db, obj_in=schemas.SessionCreate(
-            account_id=account.id, ext_id=ext_id, status=AccountStatus.ACTIVE
+            account_id=account.id,
+            ext_id=ext_id,
+            status=AccountStatus.ACTIVE,
+            info_1=info_1,
+            info_2=info_2,
+            info_3=info_3
         )
     )
 
@@ -128,7 +158,7 @@ async def start_session(
 @router.get(
     "/finish",
     response_model=schemas.SessionStatusResponse,
-    status_code=http_status.HTTP_200_OK,
+    status_code=http_status.HTTP_200_OK
 )
 async def finish_session(
     *,
@@ -138,12 +168,27 @@ async def finish_session(
         None, description="Внешний ID сессии аккаунта"
     ),
     number: str = Query(..., max_length=64, description="Номер аккаунта"),
+    info_1: Optional[str] = Query(
+        None, max_length=256, description="Служебное инфо поле 1"
+    ),
+    info_2: Optional[str] = Query(
+        None, max_length=256, description="Служебное инфо поле 2"
+    ),
+    info_3: Optional[str] = Query(
+        None, max_length=256, description="Служебное инфо поле 3"
+    ),
     user: models.User = Depends(deps.get_user_by_api_key),
 ) -> schemas.SessionStatusResponse:
     """Помечает сессию как завершённую (AVAILABLE)."""
     return await _update_session_status(
-        db, id=id, ext_id=ext_id, user_id=user.id, number=number,
-        status=AccountStatus.AVAILABLE
+        db, id=id,
+        ext_id=ext_id,
+        user_id=user.id,
+        number=number,
+        status=AccountStatus.AVAILABLE,
+        info_1=info_1,
+        info_2=info_2,
+        info_3=info_3
     )
 
 
@@ -160,10 +205,25 @@ async def ban_session(
         None, description="Внешний ID сессии аккаунта"
     ),
     number: str = Query(..., max_length=64, description="Номер аккаунта"),
+    info_1: Optional[str] = Query(
+        None, max_length=256, description="Служебное инфо поле 1"
+    ),
+    info_2: Optional[str] = Query(
+        None, max_length=256, description="Служебное инфо поле 2"
+    ),
+    info_3: Optional[str] = Query(
+        None, max_length=256, description="Служебное инфо поле 3"
+    ),
     user: models.User = Depends(deps.get_user_by_api_key),
 ) -> schemas.SessionStatusResponse:
     """Помечает сессию как заблокированную (BANNED) и обновляет."""
     return await _update_session_status(
-        db, id=id, ext_id=ext_id, user_id=user.id, number=number,
-        status=AccountStatus.BANNED
+        db, id=id,
+        ext_id=ext_id,
+        user_id=user.id,
+        number=number,
+        status=AccountStatus.BANNED,
+        info_1=info_1,
+        info_2=info_2,
+        info_3=info_3
     )
