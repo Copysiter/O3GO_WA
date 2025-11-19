@@ -80,31 +80,8 @@ function showEditForm(model) {
                 editor: "<div class='separator mx-n15'></div>",
             },
             {
-                field: 'api_keys',
-                label: 'Api Keys',
-                editor: 'MultiSelect',
-                editorOptions: {
-                    dataSource: new kendo.data.DataSource({
-                        transport: {
-                            read: {
-                                url: `http://${api_base_url}/api/v1/options/api_key`,
-                                type: 'GET',
-                                beforeSend: function (request) {
-                                    request.setRequestHeader(
-                                        'Authorization',
-                                        `${token_type} ${access_token}`
-                                    );
-                                },
-                            },
-                        },
-                    }),
-                    dataTextField: 'text',
-                    dataValueField: 'value',
-                    valuePrimitive: true,
-                    downArrow: true,
-                    animation: false,
-                    autoClose: false,
-                },
+                field: 'ext_api_key',
+                label: 'External API Key',
                 colSpan: 12,
             },
             {
