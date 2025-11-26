@@ -101,7 +101,7 @@ $(document).ready(function () {
             console.log(e);
             $.ajax({
                 type: 'POST',
-                url: `http://${api_base_url}/api/v1/auth/access-token`,
+                url: `${api_base_url}/api/v1/auth/access-token`,
                 data: {
                     username: e.model.login,
                     password: e.model.password,

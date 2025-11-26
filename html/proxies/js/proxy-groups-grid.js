@@ -18,7 +18,7 @@ window.initProxyGroupsGrid = function() {
             dataSource: {
                 transport: {
                     read: {
-                        url: `http://${api_base_url}/api/v1/proxy_groups/`,
+                        url: `${api_base_url}/api/v1/proxy_groups/`,
                         type: 'GET',
                         beforeSend: function (request) {
                             request.setRequestHeader('Authorization', `${token_type} ${access_token}`);
@@ -26,7 +26,7 @@ window.initProxyGroupsGrid = function() {
                         dataType: 'json',
                     },
                     create: {
-                        url: `http://${api_base_url}/api/v1/proxy_groups/`,
+                        url: `${api_base_url}/api/v1/proxy_groups/`,
                         type: 'POST',
                         dataType: 'json',
                         contentType: 'application/json',
@@ -37,7 +37,7 @@ window.initProxyGroupsGrid = function() {
                     update: {
                         url: function (options) {
                             console.log(options);
-                            return `http://${api_base_url}/api/v1/proxy_groups/${options.id}`;
+                            return `${api_base_url}/api/v1/proxy_groups/${options.id}`;
                         },
 
                         type: 'PUT',
@@ -50,7 +50,7 @@ window.initProxyGroupsGrid = function() {
                     destroy: {
                         url: function (options) {
                             console.log(options);
-                            return `http://${api_base_url}/api/v1/proxy_groups/${options.id}`;
+                            return `${api_base_url}/api/v1/proxy_groups/${options.id}`;
                         },
 
                         type: 'DELETE',

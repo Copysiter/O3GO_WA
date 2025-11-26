@@ -1,4 +1,6 @@
-window.api_base_url = `${document.location.hostname}:8390`
+// window.api_base_url = `${document.location.hostname}:8390`
+
+window.api_base_url = 'https://apistat2.o3go.ru'
 
 window.getToken = function () {
     return JSON.parse(localStorage.getItem('token'));
@@ -43,7 +45,7 @@ checkAuth = function () {
         let { access_token, token_type, ts, user } = isAuth;
         $.ajax({
             type: 'POST',
-            url: `http://${api_base_url}/api/v1/auth/test-token`,
+            url: `${api_base_url}/api/v1/auth/test-token`,
             headers: {
                 Authorization: `${token_type} ${access_token}`,
                 accept: 'application/json',

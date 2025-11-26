@@ -18,7 +18,7 @@ window.initGrid = function() {
             dataSource: {
                 transport: {
                     read: {
-                        url: `http://${api_base_url}/api/v1/proxies/`,
+                        url: `${api_base_url}/api/v1/proxies/`,
                         type: 'GET',
                         beforeSend: function (request) {
                             request.setRequestHeader('Authorization', `${token_type} ${access_token}`);
@@ -26,7 +26,7 @@ window.initGrid = function() {
                         dataType: 'json',
                     },
                     create: {
-                        url: `http://${api_base_url}/api/v1/proxies/`,
+                        url: `${api_base_url}/api/v1/proxies/`,
                         type: 'POST',
                         dataType: 'json',
                         contentType: 'application/json',
@@ -37,7 +37,7 @@ window.initGrid = function() {
                     update: {
                         url: function (options) {
                             console.log(options);
-                            return `http://${api_base_url}/api/v1/proxies/${options.id}`;
+                            return `${api_base_url}/api/v1/proxies/${options.id}`;
                         },
 
                         type: 'PUT',
@@ -50,7 +50,7 @@ window.initGrid = function() {
                     destroy: {
                         url: function (options) {
                             console.log(options);
-                            return `http://${api_base_url}/api/v1/proxies/${options.id}`;
+                            return `${api_base_url}/api/v1/proxies/${options.id}`;
                         },
 
                         type: 'DELETE',

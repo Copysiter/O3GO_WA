@@ -30,7 +30,7 @@ window.initGrid = function() {
                         dataSource: new kendo.data.DataSource({
                             transport: {
                                 read: {
-                                    url: `http://${api_base_url}/api/v1/options/user`,
+                                    url: `${api_base_url}/api/v1/options/user`,
                                     type: 'GET',
                                     beforeSend: function (request) {
                                         request.setRequestHeader(
@@ -54,7 +54,7 @@ window.initGrid = function() {
             dataSource: {
                 transport: {
                     read: {
-                        url: `http://${api_base_url}/api/v1/messages/`,
+                        url: `${api_base_url}/api/v1/messages/`,
                         type: 'GET',
                         beforeSend: function (request) {
                             request.setRequestHeader('Authorization', `${token_type} ${access_token}`);

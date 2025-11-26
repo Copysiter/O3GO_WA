@@ -25,7 +25,7 @@ $(document).ready(function () {
             dataSource: {
                 transport: {
                     read: {
-                        url: `http://${api_base_url}/api/v1/users/`,
+                        url: `${api_base_url}/api/v1/users/`,
                         type: 'GET',
                         beforeSend: function (request) {
                             request.setRequestHeader('Authorization', `${token_type} ${access_token}`);
@@ -33,7 +33,7 @@ $(document).ready(function () {
                         dataType: 'json',
                     },
                     create: {
-                        url: `http://${api_base_url}/api/v1/users/`,
+                        url: `${api_base_url}/api/v1/users/`,
                         type: 'POST',
                         dataType: 'json',
                         contentType: 'application/json',
@@ -44,7 +44,7 @@ $(document).ready(function () {
                     update: {
                         url: function (options) {
                             console.log(options);
-                            return `http://${api_base_url}/api/v1/users/${options.id}`;
+                            return `${api_base_url}/api/v1/users/${options.id}`;
                         },
 
                         type: 'PUT',
@@ -57,7 +57,7 @@ $(document).ready(function () {
                     destroy: {
                         url: function (options) {
                             console.log(options);
-                            return `http://${api_base_url}/api/v1/users/${options.id}`;
+                            return `${api_base_url}/api/v1/users/${options.id}`;
                         },
 
                         type: 'DELETE',

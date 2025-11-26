@@ -25,7 +25,7 @@ window.initToolbar = function() {
                     }
                     kendo.confirm("<div style='padding:5px 10px 0 10px;'>Are you sure you want to delete proxies?</div>").done(function() {
                         $.ajax({
-                            url: `http://${api_base_url}/api/v1/proxies/delete`,
+                            url: `${api_base_url}/api/v1/proxies/delete`,
                             type: "POST",
                             data: JSON.stringify({ ids: ids }),
                             processData: false,
@@ -104,7 +104,7 @@ window.initToolbar = function() {
                             }
                         });
                     }
-                    const exportURL = `http://${api_base_url}/api/v1/export/proxies?${params.toString()}`;
+                    const exportURL = `${api_base_url}/api/v1/export/proxies?${params.toString()}`;
                     exportToExcel(exportURL)
                 },
             },

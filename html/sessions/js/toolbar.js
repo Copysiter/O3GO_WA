@@ -36,7 +36,7 @@ window.initToolbar = function() {
             //                 }
             //             });
             //         }
-            //         const exportURL = `http://${api_base_url}/api/v1/export/sessions?${params.toString()}`;
+            //         const exportURL = `${api_base_url}/api/v1/export/sessions?${params.toString()}`;
             //         exportToExcel(exportURL)
             //     },
             // },
