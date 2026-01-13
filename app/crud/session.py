@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 from app.crud.base import CRUDBase
 from app.models.session import Session
 from app.schemas.session import SessionCreate, SessionUpdate, SessionFilter

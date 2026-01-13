@@ -43,7 +43,7 @@ def init_app() -> FastAPI:
         allow_headers=["*"],
     )
 
-    app_.add_middleware(LoggingMiddleware)
+    # app_.add_middleware(LoggingMiddleware)
     app_.include_router(api_router, prefix=API_PREFIX)
 
     ext_api = FastAPI(
@@ -55,7 +55,7 @@ def init_app() -> FastAPI:
         default_response_class=ORJSONResponse
     )
 
-    ext_api.add_middleware(LoggingMiddleware)
+    # ext_api.add_middleware(LoggingMiddleware)
     ext_api.include_router(ext_api_router, prefix=EXT_API_PREFIX)
     app_.mount('', ext_api)
 

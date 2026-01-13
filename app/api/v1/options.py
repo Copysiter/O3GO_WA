@@ -5,25 +5,25 @@ from fastapi.responses import JSONResponse
 
 from sqlalchemy.orm import Session
 
-import app.crud as crud, app.models as models, app.schemas as schemas  # noqa
-from api import deps  # noqa
+import app.crud as crud, app.models as models, app.schemas as schemas
+from app import deps
 
 
 router = APIRouter()
 
 
-@router.get('/user', response_model=List[schemas.OptionInt])
-async def get_user_options(
+@router.get('/', response_model=List[schemas.OptionInt])
+async def get_device_options(
     *,
     db: Session = Depends(deps.get_db),
-    user: models.User = Depends(deps.get_current_active_superuser)
+    user: models.User = Depends(deps.get_current_active_user)
 ) -> Any:
     """
-    Retrieve user options.
+    Retrieve android_device options.
     """
-    f = [{'user_id', user.id}] if not user.is_superuser else []
-    data = await crud.user.list(db, filter=f, limit=None)
+    f = {'user_id': user.id} if not user.is_superuser else None
+    rows = await crud.android.get_rows(db, filter=f, limit=None)
     return JSONResponse([{
-        'text': data[i].name if data[i].name else data[i].login,
-        'value': data[i].id
-    } for i in range(len(data))])
+        'text': rows[i].device_name or rows[i].device,
+        'value': rows[i].device
+    } for i in range(len(rows))])

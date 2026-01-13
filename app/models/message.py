@@ -1,13 +1,21 @@
 from datetime import datetime
+from enum import IntEnum
 
 from sqlalchemy import (
-    Column, Integer, SmallInteger, String, Text, ForeignKey, DateTime, func
+    Integer, SmallInteger, String, Text, ForeignKey, DateTime, func
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-
 from app.adapters.db.base_class import Base
-from app.schemas.enum import MessageStatus
+
+
+class MessageStatus(IntEnum):
+    WAITING     = -1
+    CREATED     = 0
+    SENT        = 1
+    DELIVERED   = 2
+    UNDELIVERED = 3
+    FAILED      = 4
 
 
 class Message(Base):
@@ -40,9 +48,30 @@ class Message(Base):
         server_default=func.now(), onupdate=func.now(),
         nullable=False, index=True
     )
-    info_1 = Column(String(256), nullable=True, index=True)
-    info_2 = Column(String(256), nullable=True, index=True)
-    info_3 = Column(String(256), nullable=True, index=True)
+    info_1: Mapped[str] = mapped_column(
+        String(256), nullable=True, index=True
+    )
+    info_2: Mapped[str] = mapped_column(
+        String(256), nullable=True, index=True
+    )
+    info_3: Mapped[str] = mapped_column(
+        String(256), nullable=True, index=True
+    )
+    info_4: Mapped[str] = mapped_column(
+        String(256), nullable=True, index=True
+    )
+    info_5: Mapped[str] = mapped_column(
+        String(256), nullable=True, index=True
+    )
+    info_6: Mapped[str] = mapped_column(
+        String(256), nullable=True, index=True
+    )
+    info_7: Mapped[str] = mapped_column(
+        String(256), nullable=True, index=True
+    )
+    info_8: Mapped[str] = mapped_column(
+        String(256), nullable=True, index=True
+    )
 
     session = relationship(
         "Session", back_populates="messages", lazy="selectin"

@@ -27,23 +27,20 @@
   сконструирован через `filter_class(**data)`), либо `None`.
 """
 
-from __future__ import annotations
-
 from typing import (
-    Any, Optional, Literal, Dict, Generic, List, Type, TypeVar
+    Any, Optional, Literal, Dict, Generic, List, Type, TypeVar, Sequence, cast
 )
 
-from fastapi.encoders import jsonable_encoder
-from fastapi_filter.contrib.sqlalchemy import Filter
-from sqlalchemy import func, select, update
+from sqlalchemy import func, select, insert, update, bindparam, case, Boolean
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm.exc import NoResultFound
 from pydantic import BaseModel
 
 from app.adapters.db.base_class import Base
+from app.crud.filter.sqlalchemy import Filter
 
 
-ModelType  = TypeVar("ModelType", bound=Base)
+ModelType = TypeVar("ModelType", bound=Base)
 CreateType = TypeVar("CreateType", bound=BaseModel)
 UpdateType = TypeVar("UpdateType", bound=BaseModel)
 FilterType = TypeVar("FilterType", bound=Filter)
@@ -86,7 +83,7 @@ class CRUDBase(Generic[ModelType, CreateType, UpdateType, FilterType]):
     def _get_filter(
         self,
         flt: Filter | Dict[str, Any] | None
-    ) -> Optional[Filter]:
+    ) -> Filter | None:
         """
         Возвращает экземпляр фильтра fastapi-filter или None.
 
@@ -94,7 +91,7 @@ class CRUDBase(Generic[ModelType, CreateType, UpdateType, FilterType]):
             flt: Экземпляр Filter, словарь с параметрами фильтра или None.
 
         Returns:
-            Экземпляр Filter или None.
+            Filter | None: Экземпляр Filter или None.
 
         Raises:
             ValueError: Если `flt` — словарь, но `filter_class` не задан.
@@ -110,6 +107,31 @@ class CRUDBase(Generic[ModelType, CreateType, UpdateType, FilterType]):
     # ────────────────────────────────────────────────────────────────────────
     # Базовые операции
     # ────────────────────────────────────────────────────────────────────────
+    async def all(
+        self,
+        db: AsyncSession,
+        *,
+        filter: Filter | Dict[str, Any] | None = None
+    ) -> Sequence[ModelType]:
+        """
+        Возвращает все записи с фильтрацией/сортировкой.
+
+        Args:
+            db: Асинхронная сессия SQLAlchemy.
+            filter: Экземпляр Filter, dict с параметрами фильтра или None.
+
+        Returns:
+            list: Список экземпляров модели.
+        """
+        f = self._get_filter(filter)
+        stmt = select(self.model)
+        if f is not None:
+            stmt = f.filter(stmt)
+            stmt = f.sort(stmt)
+
+        result = await db.execute(stmt)
+        return result.scalars().all()
+
     async def list(
         self,
         db: AsyncSession,
@@ -117,7 +139,7 @@ class CRUDBase(Generic[ModelType, CreateType, UpdateType, FilterType]):
         filter: Filter | Dict[str, Any] | None = None,
         skip: int = 0,
         limit: int = 100
-    ) -> List[ModelType]:
+    ) -> Sequence[ModelType]:
         """
         Возвращает список записей с фильтрацией/сортировкой и пагинацией.
 
@@ -128,7 +150,7 @@ class CRUDBase(Generic[ModelType, CreateType, UpdateType, FilterType]):
             limit: Максимальное количество записей (limit).
 
         Returns:
-            Список экземпляров модели.
+            list: Список экземпляров модели.
         """
         f = self._get_filter(filter)
         stmt = select(self.model)
@@ -137,8 +159,8 @@ class CRUDBase(Generic[ModelType, CreateType, UpdateType, FilterType]):
             stmt = f.sort(stmt)
         stmt = stmt.offset(skip).limit(limit)
 
-        res = await db.execute(stmt)
-        return res.scalars().all()
+        result = await db.execute(stmt)
+        return result.scalars().all()
 
     async def count(
         self,
@@ -154,17 +176,17 @@ class CRUDBase(Generic[ModelType, CreateType, UpdateType, FilterType]):
             filter: Экземпляр Filter, dict с параметрами фильтра или None.
 
         Returns:
-            Целое количество записей.
+            int: Количество записей.
         """
         f = self._get_filter(filter)
         stmt = select(func.count(self.model.id))
         if f is not None:
             stmt = f.filter(stmt)
 
-        res = await db.execute(stmt)
-        return res.scalar_one()
+        result = await db.execute(stmt)
+        return result.scalar_one()
 
-    async def get(self, db: AsyncSession, id: Any) -> Optional[ModelType]:
+    async def get(self, db: AsyncSession, id: Any) -> ModelType | None:
         """
         Возвращает запись по первичному ключу `id`.
 
@@ -173,13 +195,13 @@ class CRUDBase(Generic[ModelType, CreateType, UpdateType, FilterType]):
             id: Значение первичного ключа.
 
         Returns:
-            Экземпляр модели или None, если запись не найдена.
+            ModelType | None: Экземпляр модели или None.
         """
         return await db.get(self.model, id)
 
     async def get_by(
         self, db: AsyncSession, **kwargs: Any
-    ) -> Optional[ModelType]:
+    ) -> ModelType | None:
         """
         Возвращает первую запись, удовлетворяющую равенству указанных полей.
 
@@ -192,7 +214,7 @@ class CRUDBase(Generic[ModelType, CreateType, UpdateType, FilterType]):
             **kwargs: Пары поле=значение для фильтрации.
 
         Returns:
-            Экземпляр модели или None, если запись не найдена.
+            ModelType | None: Экземпляр модели или None.
         """
         stmt = select(self.model)
         for key, value in kwargs.items():
@@ -205,8 +227,8 @@ class CRUDBase(Generic[ModelType, CreateType, UpdateType, FilterType]):
             else:
                 stmt = stmt.where(col == value)
 
-        res = await db.execute(stmt.limit(1))
-        return res.scalars().first()
+        result = await db.execute(stmt.limit(1))
+        return result.scalars().first()
 
     async def create(
         self,
@@ -220,11 +242,11 @@ class CRUDBase(Generic[ModelType, CreateType, UpdateType, FilterType]):
 
         Args:
             db: Асинхронная сессия SQLAlchemy.
-            obj_in: Pydantic-модель или совместимый dict.
-            commit: True — commit(), False — только flush().
+            obj_in: Pydantic-модель или совместимый словарь.
+            commit: True — выполнить `commit()`; False — без `commit()`
 
         Returns:
-            Созданный экземпляр модели (после flush/commit).
+            ModelType: Созданный экземпляр модели (после flush/commit).
         """
         data = (
             obj_in if isinstance(obj_in, dict)
@@ -235,11 +257,62 @@ class CRUDBase(Generic[ModelType, CreateType, UpdateType, FilterType]):
 
         if commit:
             await db.commit()
-            await db.refresh(db_obj)
         else:
             await db.flush()
 
+        await db.refresh(db_obj)
+
         return db_obj
+
+    async def insert(
+        self,
+        db: AsyncSession,
+        *,
+        obj_list: List[CreateType | Dict[str, Any]],
+        batch_size: int = 100,
+        commit: bool = True,
+        returning: bool = False
+    ) -> List[ModelType] | None:
+        """
+        Массовое добавление записей с батчингом.
+
+        Args:
+            db: Асинхронная сессия SQLAlchemy.
+            obj_list: Список Pydantic-моделей или словарей.
+            batch_size: Размер батча (по умолчанию 100).
+            commit: True — выполнить `commit()`; False — без `commit()`
+            returning: Если True, возвращает созданные ORM-объекты.
+
+        Returns:
+            list | None: Список созданных экземпляров модели или None.
+
+        Raises:
+            sqlalchemy.exc.IntegrityError: При нарушении ограничений БД.
+        """
+        data = [
+            obj_in if isinstance(obj_in, dict)
+            else obj_in.model_dump(exclude_unset=True)
+            for obj_in in obj_list
+        ]
+
+        result: List[ModelType] = []
+
+        for i in range(0, len(data), batch_size):
+            batch = data[i:i + batch_size]
+            stmt = insert(self.model).values(batch)
+            if returning:
+                stmt = stmt.returning(self.model)
+                res = await db.execute(stmt)
+                result.extend(res.scalars().all())
+            else:
+                await db.execute(stmt)
+
+        if commit:
+            await db.commit()
+        else:
+            await db.flush()
+
+        return result if returning else None
 
     async def update(
         self,
@@ -269,14 +342,11 @@ class CRUDBase(Generic[ModelType, CreateType, UpdateType, FilterType]):
             db: Асинхронная сессия SQLAlchemy.
             db_obj: Экземпляр модели для точечного обновления (режим 1).
             id: Значение первичного ключа для точечного обновления (режим 2).
-            obj_in: Pydantic-модель (partial) или dict с изменениями.
+            obj_in: Pydantic-модель или совместимый словарь.
             filter: Фильтр fastapi-filter (экземпляр/словарь)
                     для массового обновления (режим 3).
             commit: True — выполнить `commit()`; False — без `commit()`
-            returning: Формат результата:
-                - "object" — вернуть ORM-объект (список объектов);
-                - "id"     — вернуть значение PK (список PK);
-                - "count"  — вернуть число затронутых строк.
+            returning: Формат возвращаемого результата.
 
         Returns:
             Режим 1 (db_obj):
@@ -296,111 +366,225 @@ class CRUDBase(Generic[ModelType, CreateType, UpdateType, FilterType]):
             ValueError: Неверное значение `returning`; отсутствие `filter`
                         для массового режима; одновременное указание
                         несовместимых аргументов (`db_obj`/`id` и `filter`).
-            NoResultFound: Если запись с указанным `id` не найдена.
             sqlalchemy.exc.IntegrityError: При нарушении ограничений БД.
         """
         if returning not in ("object", "id", "count"):
             raise ValueError(
-                "returning must be one of: 'object', 'id', 'count'"
+                "`returning` must be one of: 'object', 'id', 'count'."
+            )
+        if sum(x is not None for x in (db_obj, id, filter)) > 1:
+            raise ValueError(
+                "Only one of `db_obj` | `id` | `filter` may be set."
             )
 
         updates: Dict[str, Any] = (
-            obj_in if isinstance(obj_in, dict) else obj_in.model_dump(
-                exclude_unset=True)
+            obj_in if isinstance(obj_in, dict)
+            else obj_in.model_dump(exclude_unset=True)
         )
 
-        # ── Режим 1: обновление ORM-экземпляра ──────────────────────────────
+        # Режим 1: обновление ORM-экземпляра
         if db_obj is not None and id is None and filter is None:
-            current = jsonable_encoder(db_obj)
-            for field in current:
-                if field in updates:
-                    setattr(db_obj, field, updates[field])
-
+            for k, v in updates.items():
+                setattr(db_obj, k, v)
             db.add(db_obj)
             if commit:
                 await db.commit()
-                await db.refresh(db_obj)
             else:
                 await db.flush()
 
-            if returning == "object":
-                return db_obj
-            if returning == "id":
-                return db_obj.id
-            return 1
+            await db.refresh(db_obj)
 
-        # ── Режим 2: UPDATE ... WHERE PK=:id RETURNING ──────────────────────
-        if id is not None and db_obj is None and filter is None:
-            r = self.model if returning == "object" \
-                else self.model.id if returning == "id" else None
+            return db_obj if returning == "object" \
+                else db_obj.id if returning == "id" else 1
 
-            stmt = (
-                update(self.model)
-                .where(self.model.id == id)
-                .values(**updates)
-            )
-            if returning is not None:
-                stmt = stmt.returning(r)
-            stmt = stmt.execution_options(synchronize_session=False)
-            result = await db.execute(stmt)
+        # Режимы 2 и 3: единый конструктор WHERE
+        single = id is not None
+        if single:
+            where_clauses = [self.model.id == id]
+        else:
+            f = self._get_filter(filter)
+            if f is None:
+                raise ValueError("Filter must be provided for bulk update.")
+            s = f.filter(select(self.model.id))
+            where_clauses = list(s._where_criteria)  # noqa
 
-            if returning == "object":
-                objs = result.scalars().all()
-                if not objs:
-                    raise NoResultFound(
-                        f"{self.model.__name__}(`id`={id}) does not exist"
-                    )
-                if commit:
-                    await db.commit()
-                return objs
-            elif returning == "id":
-                ids = [row[0] for row in result.fetchall()]
-                if not ids:
-                    raise NoResultFound(
-                        f"{self.model.__name__}(`id`={id}) does not exist"
-                    )
-                if commit:
-                    await db.commit()
-                return ids
-            else:
-                count = int(result.rowcount or 0)
-                if count == 0:
-                    raise NoResultFound(
-                        f"{self.model.__name__}(`id`={id}) does not exist"
-                    )
-                if commit:
-                    await db.commit()
-                return count
-
-        # ── Режим 3: массовое обновление по fastapi-filter ──────────────────
-        f = self._get_filter(filter)
-        if f is None:
-            raise ValueError(
-                "You must specify either db_obj/id/filter for a bulk update."
-            )
-
-        s = f.filter(select(self.model.id))
-        where_clauses = list(s._where_criteria)  # noqa
-
-        r = self.model if returning == "objects" else self.model.id
-
+        # Общий UPDATE с корректным RETURNING
         stmt = (
             update(self.model)
             .values(**updates)
             .where(*where_clauses)
-            .returning(r)
             .execution_options(synchronize_session=False)
         )
-        result = await db.execute(stmt)
-        if commit:
-            await db.commit()
 
         if returning == "object":
-            return result.scalars().all()
+            stmt = stmt.returning(self.model)
         elif returning == "id":
-            return [row[0] for row in result.fetchall()]
+            stmt = stmt.returning(self.model.id)
+
+        res = await db.execute(stmt)
+
+        # Формирование ответа
+        if returning == "count":
+            result = int(res.rowcount or 0)
         else:
-            return len(result.fetchall())
+            result = res.scalars().first() \
+                if single else res.scalars().all()  # type: ignore
+
+        if commit:
+            await db.commit()
+        else:
+            await db.flush()
+
+        # Refresh только если db_obj был передан (режим 1)
+        if db_obj is not None:
+            await db.refresh(db_obj)
+
+        return result
+
+    async def map_update(
+        self,
+        db: AsyncSession,
+        *,
+        key: str = "id",
+        obj_map: Dict[Any, UpdateType | Dict[str, Any]],
+        batch_size: int = 100,
+        commit: bool = True,
+        returning: Literal["object", "id", "count"] = "count",
+    ) -> List[ModelType] | List[Any] | int:
+        """
+        Массово обновляет записи по словарю «ключ → набор полей» батчами.
+
+        Args:
+            db: Асинхронная сессия SQLAlchemy.
+            key: Имя колонки для сопоставления (WHERE <key>=:k).
+            obj_map: {значение ключа: UpdateType | dict}.
+            commit: True — выполнить `commit()`; False — без `commit()`
+            batch_size: Размер батча для executemany.
+            returning: Формат возвращаемого результата.
+
+        Returns:
+            list | int — согласно `returning`.
+        """
+        if not obj_map:
+            return 0 if returning == "count" else []
+
+        model = self.model
+        key_col = getattr(model, key)
+
+        updates = {
+            k: (v if isinstance(v, dict)
+                else v.model_dump(exclude_unset=True))
+            for k, v in obj_map.items()
+        }
+
+        fields: List[str] = list({
+            f for upd in updates.values() for f in upd.keys()
+        })
+        if not fields:
+            return 0 if returning == "count" else []
+
+        values_clause: Dict[str, Any] = {}
+        for field in fields:
+            col = getattr(model, field)
+            values_clause[field] = case((
+                bindparam(f"h_{field}", type_=Boolean, value=False),
+                bindparam(f"v_{field}", type_=col.type, required=False)
+            ), else_=col)
+
+        stmt = (
+            update(model)
+            .where(key_col == bindparam("k", type_=key_col.type))
+            .values(values_clause)
+            .execution_options(synchronize_session=False)
+        )
+
+        if returning == "object":
+            stmt = stmt.returning(model)
+        elif returning == "id":
+            stmt = stmt.returning(model.id)
+
+        objects: List[ModelType] = []
+        ids: List[Any] = []
+        total = 0
+
+        items = list(updates.items())
+        for i in range(0, len(items), batch_size):
+            batch = items[i: i + batch_size]
+
+            payload: List[Dict[str, Any]] = []
+            for k, upd in batch:
+                params: Dict[str, Any] = {"k": k}
+                for field, val in upd.items():
+                    params[f"h_{field}"] = True
+                    params[f"v_{field}"] = val
+                payload.append(params)
+
+            res = await db.execute(stmt, payload)
+
+            if returning == "object":
+                objects.extend(res.scalars().all())
+            elif returning == "id":
+                ids.extend(res.scalars().all())
+            else:
+                total += int(res.rowcount or 0)
+
+        if commit:
+            await db.commit()
+        else:
+            await db.flush()
+
+        result = objects if returning == "object" \
+            else ids if returning == "id" else total
+
+        return result
+
+    async def upsert(
+        self,
+        db: AsyncSession,
+        *,
+        obj_in: CreateType | UpdateType | Dict[str, Any],
+        match: List[str] | str,
+        commit: bool = True
+    ) -> ModelType | List[ModelType] | int:
+        """
+        Создает новую запись или обновляет существующую.
+
+        Args:
+            db: Асинхронная сессия SQLAlchemy.
+            obj_in: Pydantic-модель или совместимый словарь.
+            match: Поле или список полей для поиска существующей записи.
+            commit: True — выполнить `commit()`; False — без `commit()`
+
+        Returns:
+            ModelType: Созданный или обновленный экземпляр модели.
+        """
+        data: Dict[str, Any] = (
+            obj_in if isinstance(obj_in, dict)
+            else obj_in.model_dump(exclude_unset=True)
+        )
+
+        match_fields = [match] if isinstance(match, str) else match
+
+        for field in match_fields:
+            if field not in data:
+                raise ValueError(
+                    f"Match field '{field}' must be present in data."
+                )
+
+        db_obj = await self.get_by(db, **{
+            field: data[field] for field in match_fields
+        })
+
+        if db_obj is not None:
+            return await self.update(
+                db, db_obj=db_obj, obj_in=data, commit=commit
+            )
+
+        return await self.create(
+            db,
+            obj_in=cast(CreateType | Dict[str, Any], obj_in),
+            commit=commit
+        )
 
     async def delete(
         self, db: AsyncSession, *, id: int, commit: bool = True
@@ -411,10 +595,10 @@ class CRUDBase(Generic[ModelType, CreateType, UpdateType, FilterType]):
         Args:
             db: Асинхронная сессия SQLAlchemy.
             id: Значение первичного ключа.
-            commit: True — commit(), False — flush().
+            commit: True — выполнить `commit()`; False — без `commit()`
 
         Returns:
-            Удалённый экземпляр модели.
+            ModelType: Удалённый экземпляр модели.
 
         Raises:
             NoResultFound: Если запись не найдена.
@@ -425,9 +609,12 @@ class CRUDBase(Generic[ModelType, CreateType, UpdateType, FilterType]):
             raise NoResultFound(
                 f"{self.model.__name__}(`id`={id}) does not exist"
             )
+
         await db.delete(db_obj)
+
         if commit:
             await db.commit()
         else:
             await db.flush()
+
         return db_obj

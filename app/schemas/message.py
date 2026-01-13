@@ -2,11 +2,10 @@ from typing import Optional, List
 from datetime import datetime, timezone
 
 from pydantic import BaseModel, Field, ConfigDict
-from fastapi_filter.contrib.sqlalchemy import Filter
 
-from app.models.message import Message as MessageModel
+from app.crud.filter.sqlalchemy import Filter
+from app.models.message import Message as MessageModel, MessageStatus
 from app.schemas.session import Session
-from app.schemas.enum import MessageStatus
 
 
 class MessageBase(BaseModel):
@@ -35,6 +34,11 @@ class MessageBase(BaseModel):
     info_1: Optional[str] = Field(None, description="Служебное поле 1")
     info_2: Optional[str] = Field(None, description="Служебное поле 2")
     info_3: Optional[str] = Field(None, description="Служебное поле 3")
+    info_4: Optional[str] = Field(None, description="Служебное поле 4")
+    info_5: Optional[str] = Field(None, description="Служебное поле 5")
+    info_6: Optional[str] = Field(None, description="Служебное поле 6")
+    info_7: Optional[str] = Field(None, description="Служебное поле 7")
+    info_8: Optional[str] = Field(None, description="Служебное поле 8")
 
 
 class MessageCreate(MessageBase):
@@ -75,7 +79,7 @@ class MessageList(BaseModel):
 
 
 class MessageFilter(Filter):
-    """Фильтр для поиска сообщений по различным полям модели"""
+    """Фильтр поиска сообщений по различным полям модели"""
     id: int | None = None
     id__neq: int | None = None
     id__in: list[int] | None = None
@@ -126,6 +130,31 @@ class MessageFilter(Filter):
     info_3__neq: str | None = None
     info_3__in: list[str] | None = None
     info_3__ilike: str | None = None
+
+    info_4: str | None = None
+    info_4__neq: str | None = None
+    info_4__in: list[str] | None = None
+    info_4__ilike: str | None = None
+
+    info_5: str | None = None
+    info_5__neq: str | None = None
+    info_5__in: list[str] | None = None
+    info_5__ilike: str | None = None
+
+    info_6: str | None = None
+    info_6__neq: str | None = None
+    info_6__in: list[str] | None = None
+    info_6__ilike: str | None = None
+
+    info_7: str | None = None
+    info_7__neq: str | None = None
+    info_7__in: list[str] | None = None
+    info_7__ilike: str | None = None
+
+    info_8: str | None = None
+    info_8__neq: str | None = None
+    info_8__in: list[str] | None = None
+    info_8__ilike: str | None = None
 
     order_by: Optional[list[str]] = None
 

@@ -10,8 +10,8 @@
 - `init_db()` — init_models()`, затем `create_superuser()`.
 """
 
-import app.schemas as schemas
 import app.crud as crud
+import app.schemas as schemas
 
 from app.core.settings import settings
 from app.core.logger import logger, E

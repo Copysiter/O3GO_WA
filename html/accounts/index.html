@@ -32,13 +32,24 @@
                             class="position-absolute h-100 w-100 d-flex flex-column"
                         ></div>
                     </div>
+                    <div id="account-window">
+                        <form id="account-form" class="p-0"></form>
+                    </div>
                </div>
             </div>
         </div>
         <div id="confirm-logout"></div>
 
+        <script src="js/form.js"></script>
         <script src="js/toolbar.js"></script>
         <script src="js/grid.js"></script>
+        <script
+            id="accounts-popup-editor"
+            type="text/x-kendo-template"
+            data-role="window"
+        >
+            <form id="form-edit-account"></form>
+        </script>
         <script type="text/javascript">
             $(function() {
                 try {
@@ -47,6 +58,8 @@
                     window.token_type = token_type;
                     initToolbar();
                     initGrid();
+                    initWindow();
+                    initForm();
                 } catch (error) {
                     console.warn(error);
                 }

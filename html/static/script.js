@@ -27,6 +27,14 @@ $(document).ready(function () {
     </a>
     </li>
     <li>
+    <li>
+    <a href='/android/' data-role='drawer-item' class='${
+        $('body').attr('data-id') == 'android' ? 'k-selected ' : ''
+    }d-flex align-items-center text-decoration-none p-0'>
+    <span><i class='mdi mdi-android fs-24'></i></span>
+    <span class='k-item-text flex-grow-1 fs-14 ps-0 pe-20 pt-2' data-id='manual'>Android</span>
+    </a>
+    </li>
     <a href='/users/' data-role='drawer-item' class='${
         $('body').attr('data-id') == 'users' ? 'k-selected ' : ''
     }d-flex align-items-center text-decoration-none p-0' id='reports-icon'>
@@ -59,6 +67,14 @@ $(document).ready(function () {
     }d-flex align-items-center text-decoration-none p-0' id='tooltip-text-outline-icon'>
     <span><i class='mdi mdi-tooltip-text-outline fs-20'></i></span>
     <span class='k-item-text flex-grow-1 fs-14 ps-0 pe-20' data-id='messages'>Messages</span>
+    </a>
+    </li>
+    <li>
+    <a href='/android/' data-role='drawer-item' class='${
+        $('body').attr('data-id') == 'android' ? 'k-selected ' : ''
+    }d-flex align-items-center text-decoration-none p-0'>
+    <span><i class='mdi mdi-android fs-24'></i></span>
+    <span class='k-item-text flex-grow-1 fs-14 ps-0 pe-20 pt-2' data-id='manual'>Android</span>
     </a>
     </li>
     </ul>`;

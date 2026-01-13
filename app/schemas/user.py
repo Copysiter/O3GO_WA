@@ -1,9 +1,9 @@
 ﻿from typing import List, Optional
 
 from pydantic import BaseModel, Field, ConfigDict
-from fastapi_filter.contrib.sqlalchemy import Filter
 
 from app.models.user import User as UserModel
+from app.crud.filter.sqlalchemy import Filter
 
 
 class UserBase(BaseModel):
@@ -68,7 +68,7 @@ class UserList(BaseModel):
 
 
 class UserFilter(Filter):
-    """Фильтр для поиска пользователей по различным полям модели"""
+    """Фильтр поиска пользователей по различным полям модели"""
     id: int | None = None
     id__in: list[int] | None = None
     id__gt: int | None = None

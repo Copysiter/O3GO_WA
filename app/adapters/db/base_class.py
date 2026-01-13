@@ -35,3 +35,10 @@ class Base:
             2) Привести к нижнему регистру.
         """
         return '_'.join(re.split(r'(?<=\w)(?=[A-Z])', cls.__name__)).lower()
+
+    def to_dict(self):
+        """Преобразует SQLAlchemy-модель в Python словарь"""
+        return {
+            column.name: getattr(self, column.name)
+            for column in self.__table__.columns
+        }

@@ -61,6 +61,41 @@ window.initGrid = function() {
                         },
                         dataType: 'json',
                     },
+                    create: {
+                        url: `${api_base_url}/api/v1/accounts/`,
+                        type: 'POST',
+                        dataType: 'json',
+                        contentType: 'application/json',
+                        beforeSend: function (request) {
+                            request.setRequestHeader('Authorization', `${token_type} ${access_token}`);
+                        },
+                    },
+                    update: {
+                        url: function (options) {
+                            console.log(options);
+                            return `${api_base_url}/api/v1/accounts/${options.id}`;
+                        },
+
+                        type: 'PUT',
+                        dataType: 'json',
+                        contentType: 'application/json',
+                        beforeSend: function (request) {
+                            request.setRequestHeader('Authorization', `${token_type} ${access_token}`);
+                        },
+                    },
+                    destroy: {
+                        url: function (options) {
+                            console.log(options);
+                            return `${api_base_url}/api/v1/accounts/${options.id}`;
+                        },
+
+                        type: 'DELETE',
+                        dataType: 'json',
+                        contentType: 'application/json',
+                        beforeSend: function (request) {
+                            request.setRequestHeader('Authorization', `${token_type} ${access_token}`);
+                        },
+                    },
                     // parameterMap: function (options, type) {
                     //     return kendo.stringify(options);
                     // },
@@ -128,20 +163,61 @@ window.initGrid = function() {
             selectable: 'multiple, row',
             persistSelection: true,
             sortable: true,
+            edit: function (e) {
+                form.data('kendoForm').setOptions({
+                    formData: e.model,
+                });
+                popup.setOptions({
+                    title: e.model.id ? 'Edit Account' : 'New Account',
+                });
+                popup.center();
+            },
+            editable: {
+                mode: 'popup',
+                template: kendo.template($('#accounts-popup-editor').html()),
+                window: {
+                    width: 480,
+                    maxHeight: '90%',
+                    animation: false,
+                    appendTo: '#app-root',
+                    visible: false,
+                    open: function (e) {
+                        form = showEditForm();
+                        popup = e.sender;
+                        popup.center();
+                    },
+                },
+            },
+            edit: function (e) {
+                form.data('kendoForm').setOptions({
+                    formData: e.model,
+                });
+                popup.setOptions({
+                    title: e.model.id ? 'Edit Account' : 'New Account',
+                });
+                popup.center();
+            },
+            editable: {
+                mode: 'popup',
+                template: kendo.template($('#accounts-popup-editor').html()),
+                window: {
+                    width: 480,
+                    maxHeight: '90%',
+                    animation: false,
+                    appendTo: '#app-root',
+                    visible: false,
+                    open: function (e) {
+                        form = showEditForm();
+                        popup = e.sender;
+                        popup.center();
+                    },
+                },
+            },
             dataBinding: function (e) {
                 clearTimeout(timer);
             },
             dataBound: function (e) {
                 showLoader = true;
-                // if (!resizeColumn) {
-                //     autoFitColumn(e.sender);
-                //     resizeColumn = true;
-                // }
-
-                // timer = setTimeout(function () {
-                //     showLoader = false;
-                //     e.sender.dataSource.read();
-                // }, 30000);
             },
             filterable: {
                 mode: 'menu',
@@ -193,6 +269,26 @@ window.initGrid = function() {
                     filterable: false,
                 },
                 {
+                    command: [
+                        {
+                            name: 'edit',
+                            iconClass: {
+                                edit: 'k-icon k-i-edit',
+                                update: '',
+                                cancel: '',
+                            },
+                            text: {
+                                edit: '',
+                                update: 'Save',
+                                cancel: 'Cancel',
+                            },
+                        },
+                        { name: 'destroy', text: '' },
+                    ],
+                    title: '',
+                    // width: 86,
+                },
+                {
                     field: 'number',
                     title: 'Number',
                     filterable: {
@@ -231,6 +327,38 @@ window.initGrid = function() {
                         if (obj.type == 2) return 'WhatsApp Business';
                         return 'WhatsApp'
                     }
+                },
+                {
+                    field: 'geo',
+                    title: 'Geo',
+                    // width: 33,
+                    filterable: {
+                        cell: {
+                            inputWidth: 0,
+                            showOperators: true,
+                            operator: 'eq',
+                        },
+                    },
+                },
+                {
+                    field: "file_name",
+                    title: "Archive File Name",
+                    filterable: false,
+                },
+                {
+                    field: "profile_file_name",
+                    title: "Profile File Name",
+                    filterable: false,
+                },
+                {
+                    field: "limit",
+                    title: "Limit",
+                    filterable: false
+                },
+                {
+                    field: "cooldown",
+                    title: "Pause",
+                    filterable: false
                 },
                 {
                     field: 'status',
@@ -301,6 +429,66 @@ window.initGrid = function() {
                 {
                     field: 'info_3',
                     title: 'Info 3',
+                    // width: 33,
+                    filterable: {
+                        cell: {
+                            inputWidth: 0,
+                            showOperators: true,
+                            operator: 'eq',
+                        },
+                    }
+                },
+                {
+                    field: 'info_4',
+                    title: 'Info 4',
+                    // width: 33,
+                    filterable: {
+                        cell: {
+                            inputWidth: 0,
+                            showOperators: true,
+                            operator: 'eq',
+                        },
+                    }
+                },
+                {
+                    field: 'info_5',
+                    title: 'Info 5',
+                    // width: 33,
+                    filterable: {
+                        cell: {
+                            inputWidth: 0,
+                            showOperators: true,
+                            operator: 'eq',
+                        },
+                    }
+                },
+                {
+                    field: 'info_6',
+                    title: 'Info 6',
+                    // width: 33,
+                    filterable: {
+                        cell: {
+                            inputWidth: 0,
+                            showOperators: true,
+                            operator: 'eq',
+                        },
+                    }
+                },
+                {
+                    field: 'info_7',
+                    title: 'Info 7',
+                    // width: 33,
+                    filterable: {
+                        cell: {
+                            inputWidth: 0,
+                            showOperators: true,
+                            operator: 'eq',
+                        },
+                    }
+                },
+                {
+                    field: 'info_8',
+                    title: 'Info 8',
                     // width: 33,
                     filterable: {
                         cell: {

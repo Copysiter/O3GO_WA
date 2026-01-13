@@ -7,7 +7,8 @@ from sqlalchemy import column
 
 import app.deps as deps
 import app.crud as crud, app.models as models, app.schemas as schemas
-from app.schemas.enum import MessageStatus
+
+from app.models.message import MessageStatus
 from app.utils.geo import get_geo_by_number
 
 
@@ -38,7 +39,8 @@ async def create_message(
     ),
     info_3: Optional[str] = Query(
         None, max_length=256, description="Служебное инфо поле 3"
-    )
+    ),
+    user: models.User = Depends(deps.get_user_by_api_key)
 ) -> schemas.MessageCreateResponse:
     """Создаёт новое сообщение, привязанное к сессии."""
     if session_id:

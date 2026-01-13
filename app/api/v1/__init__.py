@@ -1,6 +1,9 @@
 from fastapi import APIRouter
 
-from . import base, auth, users, accounts, sessions, messages, options
+from . import (
+    base, auth, users, androids, versions,
+    accounts, sessions, messages, options
+)
 
 
 api_router = APIRouter()
@@ -13,6 +16,12 @@ api_router.include_router(
 )
 api_router.include_router(
     users.router, prefix='/users', tags=['Users']
+)
+api_router.include_router(
+    androids.router, prefix='/androids', tags=['Android Devices']
+)
+api_router.include_router(
+    versions.router, prefix='/android/versions', tags=['Android App Versions']
 )
 api_router.include_router(
     accounts.router, prefix='/accounts', tags=['Accounts']

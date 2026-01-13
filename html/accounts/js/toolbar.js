@@ -21,6 +21,17 @@ window.initToolbar = function() {
                     $('#accounts-grid').data('kendoGrid').dataSource.filter({});
                 },
             },
+            {
+                type: 'button',
+                text: 'New Account',
+                icon: 'plus',
+                click: function (e) {
+                    // let grid = $('#accounts-grid').data('kendoGrid');
+                    // grid.addRow();
+                    // Если окно уже создано — просто открываем
+                    $("#account-window").data("kendoWindow").center().open();
+                },
+            }
             // {
             //     type: 'button',
             //     text: 'Export to Excel',

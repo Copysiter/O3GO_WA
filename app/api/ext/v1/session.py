@@ -7,7 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 import app.deps as deps
 import app.crud as crud, app.models as models, app.schemas as schemas
-from app.schemas.enum import AccountStatus, SessionStatus
+from app.models.session import AccountStatus, SessionStatus
 
 
 router = APIRouter()
@@ -77,7 +77,7 @@ async def start_session(
     db: AsyncSession = Depends(deps.get_db),
     ext_id: str = Query(..., description="Внешний ID сессии"),
     number: str = Query(
-        ..., max_length=64, description="Номер аккаунта/получателя"
+        ..., max_length=64, description="Номер аккаунта"
     ),
     info_1: Optional[str] = Query(
         None, max_length=256, description="Служебное инфо поле 1"

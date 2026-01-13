@@ -1,15 +1,13 @@
-﻿from __future__ import annotations
-
-from secrets import token_urlsafe
+﻿from secrets import token_urlsafe
 from typing import Optional, Union, Literal, Any, Dict, List
 
-from fastapi_filter.contrib.sqlalchemy import Filter
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.security import get_password_hash, verify_password
-from app.crud.base import CRUDBase
 from app.models.user import User
 from app.schemas.user import UserCreate, UserUpdate, UserFilter
+from app.crud.base import CRUDBase
+from app.crud.filter.sqlalchemy import Filter
 
 
 class UserCRUD(
