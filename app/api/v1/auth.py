@@ -6,6 +6,8 @@ from fastapi.security import OAuth2PasswordRequestForm
 from fastapi.responses import ORJSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.logger import logger, E
+
 import app.deps as deps
 import app.crud as crud, app.models as models, app.schemas as schemas  # noqa
 from app.core import security  # noqa
@@ -53,16 +55,24 @@ async def login_access_token(
     '''
     OAuth2 compatible token login, get an access token for future requests
     '''
-    user = await crud.user.authenticate(
-        db, login=form_data.username, password=form_data.password
-    )
-    if not user:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,
-                            detail='Incorrect login or password')
-    elif not crud.user.is_active(user):
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,
-                            detail='Inactive user')
-    return get_tokens(user)
+    try:
+        user = await crud.user.authenticate(
+            db, login=form_data.username, password=form_data.password
+        )
+        if not user:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,
+                                detail='Incorrect login or password')
+        elif not crud.user.is_active(user):
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,
+                                detail='Inactive user')
+        return get_tokens(user)
+    except Exception as e:
+        logger.exception(
+            event=E.SYSTEM.API.ERROR, extra={
+                "error": {"type": type(e).__name__, "msg": str(e)}
+            }
+        )
+        raise e
 
 
 @router.post('/refresh-token', response_model=schemas.Token)
@@ -74,22 +84,30 @@ async def refresh_token(
     '''
     Refresh token
     '''
-    token = request.cookies.get('refresh-token')
+    try:
+        token = request.cookies.get('refresh-token')
 
-    user_id = int(verify_password_reset_token(token))
-    if not user_id:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,
-                            detail='Invalid token')
-    user = await crud.user.get(db, id=user_id)
-    if not user:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail='The user with this ID does not exist in the system.',
+        user_id = int(verify_password_reset_token(token))
+        if not user_id:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,
+                                detail='Invalid token')
+        user = await crud.user.get(db, id=user_id)
+        if not user:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail='The user with this ID does not exist in the system.',
+            )
+        elif not crud.user.is_active(user):
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,
+                                detail='Inactive user')
+        return get_tokens(user.id)
+    except Exception as e:
+        logger.exception(
+            event=E.SYSTEM.API.ERROR, extra={
+                "error": {"type": type(e).__name__, "msg": str(e)}
+            }
         )
-    elif not crud.user.is_active(user):
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,
-                            detail='Inactive user')
-    return get_tokens(user.id)
+        raise e
 
 
 @router.post('/test-token', response_model=schemas.TokenTest)
@@ -99,7 +117,15 @@ async def test_token(
     '''
     Test access token
     '''
-    return {
-        'user': current_user,
-        'ts': datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')
-    }
+    try:
+        return {
+            'user': current_user,
+            'ts': datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')
+        }
+    except Exception as e:
+        logger.exception(
+            event=E.SYSTEM.API.ERROR, extra={
+                "error": {"type": type(e).__name__, "msg": str(e)}
+            }
+        )
+        raise e

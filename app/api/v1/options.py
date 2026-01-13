@@ -5,6 +5,8 @@ from fastapi.responses import JSONResponse
 
 from sqlalchemy.orm import Session
 
+from app.core.logger import logger, E
+
 import app.crud as crud, app.models as models, app.schemas as schemas
 from app import deps
 
@@ -21,9 +23,17 @@ async def get_device_options(
     """
     Retrieve android_device options.
     """
-    f = {'user_id': user.id} if not user.is_superuser else None
-    rows = await crud.android.get_rows(db, filter=f, limit=None)
-    return JSONResponse([{
-        'text': rows[i].device_name or rows[i].device,
-        'value': rows[i].device
-    } for i in range(len(rows))])
+    try:
+        f = {'user_id': user.id} if not user.is_superuser else None
+        rows = await crud.android.get_rows(db, filter=f, limit=None)
+        return JSONResponse([{
+            'text': rows[i].device_name or rows[i].device,
+            'value': rows[i].device
+        } for i in range(len(rows))])
+    except Exception as e:
+        logger.exception(
+            event=E.SYSTEM.API.ERROR, extra={
+                "error": {"type": type(e).__name__, "msg": str(e)}
+            }
+        )
+        raise e

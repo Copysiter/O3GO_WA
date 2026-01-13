@@ -47,6 +47,8 @@ from fastapi import APIRouter, Query, Depends, HTTPException, status
 from fastapi_filter import FilterDepends
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.logger import logger, E
+
 import app.deps as deps
 import app.crud as crud
 import app.models as models
@@ -87,11 +89,19 @@ async def read_sessions(
         - `GET /sessions?status__in=1,2&order_by=-id`
         - `GET /sessions?account_id=42&order_by=created_at&order_by=-id`
     """
-    if not getattr(f, "order_by", None):
-        f.order_by = ["-id"]
-    data = await crud.session.list(db, filter=f, skip=skip, limit=limit)
-    count = await crud.session.count(db, filter=f)
-    return {'data': data, 'total': count}
+    try:
+        if not getattr(f, "order_by", None):
+            f.order_by = ["-id"]
+        data = await crud.session.list(db, filter=f, skip=skip, limit=limit)
+        count = await crud.session.count(db, filter=f)
+        return {'data': data, 'total': count}
+    except Exception as e:
+        logger.exception(
+            event=E.SYSTEM.API.ERROR, extra={
+                "error": {"type": type(e).__name__, "msg": str(e)}
+            }
+        )
+        raise e
 
 
 @router.post(
@@ -119,14 +129,22 @@ async def create_session(
     Returns:
         Созданный объект `schemas.Session` (HTTP 201).
     """
-    session = await crud.session.get_by(db, ext_id=obj_in.ext_id)
-    if session:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail='The session with this ext_id already exists'
+    try:
+        session = await crud.session.get_by(db, ext_id=obj_in.ext_id)
+        if session:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail='The session with this ext_id already exists'
+            )
+        session = await crud.session.create(db=db, obj_in=obj_in)
+        return session
+    except Exception as e:
+        logger.exception(
+            event=E.SYSTEM.API.ERROR, extra={
+                "error": {"type": type(e).__name__, "msg": str(e)}
+            }
         )
-    session = await crud.session.create(db=db, obj_in=obj_in)
-    return session
+        raise e
 
 
 @router.put('/{id}', response_model=schemas.Session)
@@ -151,14 +169,22 @@ async def update_session(
     Returns:
         Обновлённый объект `schemas.Session`.
     """
-    session = await crud.session.get(db=db, id=id)
-    if not session:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail='The session with this ID does not exist'
+    try:
+        session = await crud.session.get(db=db, id=id)
+        if not session:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail='The session with this ID does not exist'
+            )
+        db_obj = await crud.session.update(db=db, db_obj=session, obj_in=obj_in)
+        return db_obj
+    except Exception as e:
+        logger.exception(
+            event=E.SYSTEM.API.ERROR, extra={
+                "error": {"type": type(e).__name__, "msg": str(e)}
+            }
         )
-    db_obj = await crud.session.update(db=db, db_obj=session, obj_in=obj_in)
-    return db_obj
+        raise e
 
 
 @router.get('/{id}', response_model=schemas.Session)
@@ -182,13 +208,21 @@ async def read_session(
     Raises:
         HTTPException(404): Если сессия аккаунта не найдена.
     """
-    session = await crud.session.get(db=db, id=id)
-    if not session:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail='The session with this ID does not exist'
+    try:
+        session = await crud.session.get(db=db, id=id)
+        if not session:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail='The session with this ID does not exist'
+            )
+        return session
+    except Exception as e:
+        logger.exception(
+            event=E.SYSTEM.API.ERROR, extra={
+                "error": {"type": type(e).__name__, "msg": str(e)}
+            }
         )
-    return session
+        raise e
 
 
 @router.delete('/{id}', response_model=schemas.Session)
@@ -212,11 +246,19 @@ async def delete_session(
     Raises:
         HTTPException(404): Если сессия аккаунта не найдена.
     """
-    session = await crud.session.get(db=db, id=id)
-    if not session:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail='The session with this ID does not exist'
+    try:
+        session = await crud.session.get(db=db, id=id)
+        if not session:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail='The session with this ID does not exist'
+            )
+        db_obj = await crud.session.delete(db=db, id=id)
+        return db_obj
+    except Exception as e:
+        logger.exception(
+            event=E.SYSTEM.API.ERROR, extra={
+                "error": {"type": type(e).__name__, "msg": str(e)}
+            }
         )
-    db_obj = await crud.session.delete(db=db, id=id)
-    return db_obj
+        raise e

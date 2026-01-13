@@ -5,6 +5,8 @@ from fastapi import (
 )
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.logger import logger, E
+
 import app.deps as deps
 import app.crud as crud, app.models as models, app.schemas as schemas
 from app.models.session import AccountStatus, SessionStatus
@@ -94,65 +96,72 @@ async def start_session(
     Стартует сессию:
     если аккаунта нет — создаёт, если сессия уже существует — ошибка.
     """
+    try:
+        # Проверяем, нет ли уже сессии с таким ext_id
+        existing = await crud.session.get_by(db, ext_id=ext_id)
+        if existing:
+            raise HTTPException(
+                status_code=http_status.HTTP_400_BAD_REQUEST,
+                detail=f"Session with ext_id={ext_id} already exists",
+            )
 
-    # Проверяем, нет ли уже сессии с таким ext_id
-    existing = await crud.session.get_by(db, ext_id=ext_id)
-    if existing:
-        raise HTTPException(
-            status_code=http_status.HTTP_400_BAD_REQUEST,
-            detail=f"Session with ext_id={ext_id} already exists",
-        )
+        # Проверяем аккаунт, если нет — создаём
+        account = await crud.account.get_by(db, number=number)
+        if account:
+            account = await crud.account.update(
+                db, db_obj=account,
+                obj_in=schemas.AccountUpdate(
+                    status=AccountStatus.ACTIVE,
+                    info_1=info_1,
+                    info_2=info_2,
+                    info_3=info_3
+                )
+            )
+            await crud.session.update(
+                db, obj_in=schemas.SessionUpdate(status=SessionStatus.FINISHED),
+                filter={
+                    "account_id": account.id,
+                    "status__in": [SessionStatus.ACTIVE, SessionStatus.PAUSED]
+                }
+            )
+        else:
+            account = await crud.account.create(
+                db=db, obj_in=schemas.AccountCreate(
+                    number=number,
+                    user_id=user.id,
+                    status=AccountStatus.ACTIVE,
+                    info_1=info_1,
+                    info_2=info_2,
+                    info_3=info_3
+                )
+            )
 
-    # Проверяем аккаунт, если нет — создаём
-    account = await crud.account.get_by(db, number=number)
-    if account:
-        account = await crud.account.update(
-            db, db_obj=account,
-            obj_in=schemas.AccountUpdate(
+        # Создаём новую сессию
+        session = await crud.session.create(
+            db=db, obj_in=schemas.SessionCreate(
+                account_id=account.id,
+                ext_id=ext_id,
                 status=AccountStatus.ACTIVE,
                 info_1=info_1,
                 info_2=info_2,
                 info_3=info_3
             )
         )
-        await crud.session.update(
-            db, obj_in=schemas.SessionUpdate(status=SessionStatus.FINISHED),
-            filter={
-                "account_id": account.id,
-                "status__in": [SessionStatus.ACTIVE, SessionStatus.PAUSED]
+
+        return schemas.SessionStatusResponse(
+            id=session.id,
+            ext_id=session.ext_id,
+            number=account.number,
+            status=SessionStatus(session.status).name.lower(),
+            msg_count=session.msg_count
+        )
+    except Exception as e:
+        logger.exception(
+            event=E.SYSTEM.API.ERROR, extra={
+                "error": {"type": type(e).__name__, "msg": str(e)}
             }
         )
-    else:
-        account = await crud.account.create(
-            db=db, obj_in=schemas.AccountCreate(
-                number=number,
-                user_id=user.id,
-                status=AccountStatus.ACTIVE,
-                info_1=info_1,
-                info_2=info_2,
-                info_3=info_3
-            )
-        )
-
-    # Создаём новую сессию
-    session = await crud.session.create(
-        db=db, obj_in=schemas.SessionCreate(
-            account_id=account.id,
-            ext_id=ext_id,
-            status=AccountStatus.ACTIVE,
-            info_1=info_1,
-            info_2=info_2,
-            info_3=info_3
-        )
-    )
-
-    return schemas.SessionStatusResponse(
-        id=session.id,
-        ext_id=session.ext_id,
-        number=account.number,
-        status=SessionStatus(session.status).name.lower(),
-        msg_count=session.msg_count
-    )
+        raise e
 
 
 @router.get(
@@ -180,16 +189,24 @@ async def finish_session(
     user: models.User = Depends(deps.get_user_by_api_key),
 ) -> schemas.SessionStatusResponse:
     """Помечает сессию как завершённую (AVAILABLE)."""
-    return await _update_session_status(
-        db, id=id,
-        ext_id=ext_id,
-        user_id=user.id,
-        number=number,
-        status=AccountStatus.AVAILABLE,
-        info_1=info_1,
-        info_2=info_2,
-        info_3=info_3
-    )
+    try:
+        return await _update_session_status(
+            db, id=id,
+            ext_id=ext_id,
+            user_id=user.id,
+            number=number,
+            status=AccountStatus.AVAILABLE,
+            info_1=info_1,
+            info_2=info_2,
+            info_3=info_3
+        )
+    except Exception as e:
+        logger.exception(
+            event=E.SYSTEM.API.ERROR, extra={
+                "error": {"type": type(e).__name__, "msg": str(e)}
+            }
+        )
+        raise e
 
 
 @router.get(
@@ -217,13 +234,21 @@ async def ban_session(
     user: models.User = Depends(deps.get_user_by_api_key),
 ) -> schemas.SessionStatusResponse:
     """Помечает сессию как заблокированную (BANNED) и обновляет."""
-    return await _update_session_status(
-        db, id=id,
-        ext_id=ext_id,
-        user_id=user.id,
-        number=number,
-        status=AccountStatus.BANNED,
-        info_1=info_1,
-        info_2=info_2,
-        info_3=info_3
-    )
+    try:
+        return await _update_session_status(
+            db, id=id,
+            ext_id=ext_id,
+            user_id=user.id,
+            number=number,
+            status=AccountStatus.BANNED,
+            info_1=info_1,
+            info_2=info_2,
+            info_3=info_3
+        )
+    except Exception as e:
+        logger.exception(
+            event=E.SYSTEM.API.ERROR, extra={
+                "error": {"type": type(e).__name__, "msg": str(e)}
+            }
+        )
+        raise e

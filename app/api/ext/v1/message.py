@@ -5,6 +5,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm.sync import update
 from sqlalchemy import column
 
+from app.core.logger import logger, E
+
 import app.deps as deps
 import app.crud as crud, app.models as models, app.schemas as schemas
 
@@ -43,39 +45,47 @@ async def create_message(
     user: models.User = Depends(deps.get_user_by_api_key)
 ) -> schemas.MessageCreateResponse:
     """Создаёт новое сообщение, привязанное к сессии."""
-    if session_id:
-        session = await crud.session.get(db, session_id)
-    elif session_ext_id:
-        session = await crud.session.get_by(db, ext_id=session_ext_id)
-    else:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail="Missing required field: 'session_id' or 'session_ext_id'."
+    try:
+        if session_id:
+            session = await crud.session.get(db, session_id)
+        elif session_ext_id:
+            session = await crud.session.get_by(db, ext_id=session_ext_id)
+        else:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="Missing required field: 'session_id' or 'session_ext_id'."
+            )
+        if not session:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Session with id={session_id} not found",
+            )
+
+        await crud.session.update(
+            db, id=session.id, obj_in={'msg_count': column('msg_count') + 1}
         )
-    if not session:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Session with id={session_id} not found",
+
+        obj_in = schemas.MessageCreate(
+            session_id=session.id,
+            number=number if number else session.account.number,
+            geo=get_geo_by_number(number),
+            text=text,  # если не передан, сохранится NULL
+            status=MessageStatus.CREATED,
+            info_1=info_1,
+            info_2=info_2,
+            info_3=info_3
         )
 
-    await crud.session.update(
-        db, id=session.id, obj_in={'msg_count': column('msg_count') + 1}
-    )
+        message = await crud.message.create(db=db, obj_in=obj_in)
 
-    obj_in = schemas.MessageCreate(
-        session_id=session.id,
-        number=number if number else session.account.number,
-        geo=get_geo_by_number(number),
-        text=text,  # если не передан, сохранится NULL
-        status=MessageStatus.CREATED,
-        info_1=info_1,
-        info_2=info_2,
-        info_3=info_3
-    )
-
-    message = await crud.message.create(db=db, obj_in=obj_in)
-
-    return schemas.MessageCreateResponse(id=message.id)
+        return schemas.MessageCreateResponse(id=message.id)
+    except Exception as e:
+        logger.exception(
+            event=E.SYSTEM.API.ERROR, extra={
+                "error": {"type": type(e).__name__, "msg": str(e)}
+            }
+        )
+        raise e
 
 
 @router.get(
@@ -102,24 +112,32 @@ async def update_message_status(
     user: models.User = Depends(deps.get_user_by_api_key),
 ) -> schemas.MessageStatusResponse:
     """Обновляет статус сообщения."""
-    message = await crud.message.get(db, id)
-    if not message or message.session.account.user_id != user.id:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Message with id={id} not found",
+    try:
+        message = await crud.message.get(db, id)
+        if not message or message.session.account.user_id != user.id:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Message with id={id} not found",
+            )
+        new_status = getattr(
+            schemas.MessageStatus, status.upper(), message.status
         )
-    new_status = getattr(
-        schemas.MessageStatus, status.upper(), message.status
-    )
-    obj_in = schemas.MessageUpdate(status=new_status)
-    for info in ['info_1', 'info_2', 'info_3']:
-        if locals()[info] is not None:
-            setattr(obj_in, info, locals()[info])
-    message = await crud.message.update(
-        db, db_obj=message, obj_in=obj_in
-    )
+        obj_in = schemas.MessageUpdate(status=new_status)
+        for info in ['info_1', 'info_2', 'info_3']:
+            if locals()[info] is not None:
+                setattr(obj_in, info, locals()[info])
+        message = await crud.message.update(
+            db, db_obj=message, obj_in=obj_in
+        )
 
-    return schemas.MessageStatusResponse(
-        id=message.id,
-        status=schemas.MessageStatus(message.status).name.lower()
-    )
+        return schemas.MessageStatusResponse(
+            id=message.id,
+            status=schemas.MessageStatus(message.status).name.lower()
+        )
+    except Exception as e:
+        logger.exception(
+            event=E.SYSTEM.API.ERROR, extra={
+                "error": {"type": type(e).__name__, "msg": str(e)}
+            }
+        )
+        raise e

@@ -47,6 +47,8 @@ from fastapi import APIRouter, Query, Depends, HTTPException, status
 from fastapi_filter import FilterDepends
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.logger import logger, E
+
 import app.deps as deps
 import app.crud as crud
 import app.models as models
@@ -87,11 +89,19 @@ async def read_messages(
         - `GET /messages?status__in=1,2&order_by=-id`
         - `GET /messages?user_id=42&order_by=created_at&order_by=-id`
     """
-    if not getattr(f, "order_by", None):
-        f.order_by = ["-id"]
-    data = await crud.message.list(db, filter=f, skip=skip, limit=limit)
-    count = await crud.message.count(db, filter=f)
-    return {'data': data, 'total': count}
+    try:
+        if not getattr(f, "order_by", None):
+            f.order_by = ["-id"]
+        data = await crud.message.list(db, filter=f, skip=skip, limit=limit)
+        count = await crud.message.count(db, filter=f)
+        return {'data': data, 'total': count}
+    except Exception as e:
+        logger.exception(
+            event=E.SYSTEM.API.ERROR, extra={
+                "error": {"type": type(e).__name__, "msg": str(e)}
+            }
+        )
+        raise e
 
 
 @router.post(
@@ -119,8 +129,16 @@ async def create_message(
     Returns:
         Созданный объект `schemas.Message` (HTTP 201).
     """
-    message = await crud.message.create(db=db, obj_in=obj_in)
-    return message
+    try:
+        message = await crud.message.create(db=db, obj_in=obj_in)
+        return message
+    except Exception as e:
+        logger.exception(
+            event=E.SYSTEM.API.ERROR, extra={
+                "error": {"type": type(e).__name__, "msg": str(e)}
+            }
+        )
+        raise e
 
 
 @router.put('/{id}', response_model=schemas.Message)
@@ -145,14 +163,22 @@ async def update_message(
     Returns:
         Обновлённый объект `schemas.Message`.
     """
-    db_obj = await crud.message.get(db=db, id=id)
-    if not db_obj:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail='The message with this ID does not exist'
+    try:
+        db_obj = await crud.message.get(db=db, id=id)
+        if not db_obj:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail='The message with this ID does not exist'
+            )
+        db_obj = await crud.message.update(db=db, db_obj=obj_in, obj_in=obj_in)
+        return db_obj
+    except Exception as e:
+        logger.exception(
+            event=E.SYSTEM.API.ERROR, extra={
+                "error": {"type": type(e).__name__, "msg": str(e)}
+            }
         )
-    db_obj = await crud.message.update(db=db, db_obj=obj_in, obj_in=obj_in)
-    return db_obj
+        raise e
 
 
 @router.get('/{id}', response_model=schemas.Message)
@@ -176,13 +202,21 @@ async def read_message(
     Raises:
         HTTPException(404): Если сообщение не найдено.
     """
-    message = await crud.message.get(db=db, id=id)
-    if not message:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail='The message with this ID does not exist'
+    try:
+        message = await crud.message.get(db=db, id=id)
+        if not message:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail='The message with this ID does not exist'
+            )
+        return message
+    except Exception as e:
+        logger.exception(
+            event=E.SYSTEM.API.ERROR, extra={
+                "error": {"type": type(e).__name__, "msg": str(e)}
+            }
         )
-    return message
+        raise e
 
 
 @router.delete('/{id}', response_model=schemas.Message)
@@ -206,11 +240,19 @@ async def delete_message(
     Raises:
         HTTPException(404): Если сообщение не найдено.
     """
-    message = await crud.message.get(db=db, id=id)
-    if not message:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail='The message with this ID does not exist'
+    try:
+        message = await crud.message.get(db=db, id=id)
+        if not message:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail='The message with this ID does not exist'
+            )
+        db_obj = await crud.message.delete(db=db, id=id)
+        return db_obj
+    except Exception as e:
+        logger.exception(
+            event=E.SYSTEM.API.ERROR, extra={
+                "error": {"type": type(e).__name__, "msg": str(e)}
+            }
         )
-    db_obj = await crud.message.delete(db=db, id=id)
-    return db_obj
+        raise e

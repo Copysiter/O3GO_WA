@@ -237,30 +237,46 @@ async def delete_android_device(
 
 @router.post('/upload')
 async def upload_apk(file: UploadFile = File(...)):
-    if not file.filename.endswith('.apk'):
-        raise HTTPException(
-            status_code=400, detail='The file must have a .apk extension'
+    try:
+        if not file.filename.endswith('.apk'):
+            raise HTTPException(
+                status_code=400, detail='The file must have a .apk extension'
+            )
+        file_path = UPLOAD_DIR / file.filename
+
+        with file_path.open('wb') as buffer:
+            shutil.copyfileobj(file.file, buffer)
+
+        return JSONResponse(content={'file_name': str(file.filename)})
+    except Exception as e:
+        logger.exception(
+            event=E.SYSTEM.API.ERROR, extra={
+                "error": {"type": type(e).__name__, "msg": str(e)}
+            }
         )
-    file_path = UPLOAD_DIR / file.filename
-
-    with file_path.open('wb') as buffer:
-        shutil.copyfileobj(file.file, buffer)
-
-    return JSONResponse(content={'file_name': str(file.filename)})
+        raise e
 
 
 @router.post('/remove')
 async def remove_apk(request: Request):
-    form = await request.form()
-    filename = form.get('file_name')
-    if not filename or not filename.endswith(".apk"):
-        raise HTTPException(status_code=400, detail="Invalid file name")
+    try:
+        form = await request.form()
+        filename = form.get('file_name')
+        if not filename or not filename.endswith(".apk"):
+            raise HTTPException(status_code=400, detail="Invalid file name")
 
-    file_path = UPLOAD_DIR / filename
+        file_path = UPLOAD_DIR / filename
 
-    if not file_path.exists():
-        raise HTTPException(status_code=404, detail="File not found")
+        if not file_path.exists():
+            raise HTTPException(status_code=404, detail="File not found")
 
-    file_path.unlink()
+        file_path.unlink()
 
-    return JSONResponse(content={"message": "File deleted successfully"})
+        return JSONResponse(content={"message": "File deleted successfully"})
+    except Exception as e:
+        logger.exception(
+            event=E.SYSTEM.API.ERROR, extra={
+                "error": {"type": type(e).__name__, "msg": str(e)}
+            }
+        )
+        raise e

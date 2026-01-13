@@ -49,6 +49,8 @@ from fastapi.encoders import jsonable_encoder
 from fastapi_filter import FilterDepends
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.logger import logger, E
+
 import app.deps as deps
 import app.crud as crud
 import app.models as models
@@ -89,11 +91,19 @@ async def read_users(
         - `GET /users?login__ilike=%al%&order_by=login&order_by=-id`
         - `GET /users?id__in=1,2,3&order_by=-id`
     """
-    if not getattr(f, "order_by", None):
-        f.order_by = ["-id"]
-    data = await crud.user.list(db, filter=f, skip=skip, limit=limit)
-    count = await crud.user.count(db, filter=f)
-    return {'data': data, 'total': count}
+    try:
+        if not getattr(f, "order_by", None):
+            f.order_by = ["-id"]
+        data = await crud.user.list(db, filter=f, skip=skip, limit=limit)
+        count = await crud.user.count(db, filter=f)
+        return {'data': data, 'total': count}
+    except Exception as e:
+        logger.exception(
+            event=E.SYSTEM.API.ERROR, extra={
+                "error": {"type": type(e).__name__, "msg": str(e)}
+            }
+        )
+        raise e
 
 
 @router.post(
@@ -121,14 +131,22 @@ async def create_user(
     Returns:
         Созданный объект `schemas.User` (HTTP 201).
     """
-    user = await crud.user.get_by(db, login=obj_in.login)
-    if user:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail='The user with this ID already exists',
+    try:
+        user = await crud.user.get_by(db, login=obj_in.login)
+        if user:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail='The user with this ID already exists',
+            )
+        user = await crud.user.create(db, obj_in=obj_in)
+        return user
+    except Exception as e:
+        logger.exception(
+            event=E.SYSTEM.API.ERROR, extra={
+                "error": {"type": type(e).__name__, "msg": str(e)}
+            }
         )
-    user = await crud.user.create(db, obj_in=obj_in)
-    return user
+        raise e
 
 
 @router.put('/me', response_model=schemas.User)
@@ -153,16 +171,24 @@ async def update_current_user(
     Returns:
         Обновлённый объект `schemas.User`.
     """
-    current_user_data = jsonable_encoder(current_user)
-    user_in = schemas.UserUpdate(**current_user_data)
-    if password is not None:
-        user_in.password = password
-    if name is not None:
-        user_in.name = name
-    if login is not None:
-        user_in.login = login
-    user = await crud.user.update(db, db_obj=current_user, obj_in=user_in)
-    return user
+    try:
+        current_user_data = jsonable_encoder(current_user)
+        user_in = schemas.UserUpdate(**current_user_data)
+        if password is not None:
+            user_in.password = password
+        if name is not None:
+            user_in.name = name
+        if login is not None:
+            user_in.login = login
+        user = await crud.user.update(db, db_obj=current_user, obj_in=user_in)
+        return user
+    except Exception as e:
+        logger.exception(
+            event=E.SYSTEM.API.ERROR, extra={
+                "error": {"type": type(e).__name__, "msg": str(e)}
+            }
+        )
+        raise e
 
 
 @router.get('/me', response_model=schemas.User)
@@ -179,7 +205,15 @@ async def read_curent_user(
     Returns:
         Объект `schemas.User`.
     """
-    return current_user
+    try:
+        return current_user
+    except Exception as e:
+        logger.exception(
+            event=E.SYSTEM.API.ERROR, extra={
+                "error": {"type": type(e).__name__, "msg": str(e)}
+            }
+        )
+        raise e
 
 
 @router.get('/{id}', response_model=schemas.User)
@@ -207,23 +241,31 @@ async def read_user(
         HTTPException(404): Если пользователь не найден.
         HTTPException(400): Недостаточно прав для просмотра чужого профиля.
     """
-    user = await crud.user.get(db, id=id)
-    if not user:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail='The user with this ID does not exist'
-        )
-    if user == current_user:
+    try:
+        user = await crud.user.get(db, id=id)
+        if not user:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail='The user with this ID does not exist'
+            )
+        if user == current_user:
+            return user
+        if not crud.user.is_superuser(current_user):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="The user doesn't have enough privileges",
+            )
         return user
-    if not crud.user.is_superuser(current_user):
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="The user doesn't have enough privileges",
+    except Exception as e:
+        logger.exception(
+            event=E.SYSTEM.API.ERROR, extra={
+                "error": {"type": type(e).__name__, "msg": str(e)}
+            }
         )
-    return user
+        raise e
 
 
-@router.put('/{user_id}', response_model=schemas.User)
+@router.put('/{id}', response_model=schemas.User)
 async def update_user(
     *,
     db: AsyncSession = Depends(deps.get_db),
@@ -248,14 +290,22 @@ async def update_user(
     Raises:
         HTTPException(404): Если пользователь не найден.
     """
-    user = await crud.user.get(db, id=id)
-    if not user:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail='The user with this ID does not exist',
+    try:
+        user = await crud.user.get(db, id=id)
+        if not user:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail='The user with this ID does not exist',
+            )
+        user = await crud.user.update(db, db_obj=user, obj_in=obj_in)
+        return user
+    except Exception as e:
+        logger.exception(
+            event=E.SYSTEM.API.ERROR, extra={
+                "error": {"type": type(e).__name__, "msg": str(e)}
+            }
         )
-    user = await crud.user.update(db, db_obj=user, obj_in=obj_in)
-    return user
+        raise e
 
 
 @router.delete('/{id}', response_model=schemas.User)
@@ -281,11 +331,19 @@ async def delete_user(
     Raises:
         HTTPException(404): Если пользователь не найден.
     """
-    user = await crud.user.get(db=db, id=id)
-    if not user:
-        raise HTTPException(
-            status_code=404,
-            detail='The user with this ID does not exist'
+    try:
+        user = await crud.user.get(db=db, id=id)
+        if not user:
+            raise HTTPException(
+                status_code=404,
+                detail='The user with this ID does not exist'
+            )
+        user = await crud.user.delete(db=db, id=id)
+        return user
+    except Exception as e:
+        logger.exception(
+            event=E.SYSTEM.API.ERROR, extra={
+                "error": {"type": type(e).__name__, "msg": str(e)}
+            }
         )
-    user = await crud.user.delete(db=db, id=id)
-    return user
+        raise e
