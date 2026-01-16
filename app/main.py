@@ -69,5 +69,6 @@ if __name__ == '__main__':
     uvicorn.run(
         'app.main:app',
         host=settings.PROJECT_HOST, port=settings.PROJECT_PORT,
-        workers=settings.ASGI_WORKERS, log_config=None, reload=False
+        workers=settings.ASGI_WORKERS, log_config=None, reload=False,
+        proxy_headers=True, forwarded_allow_ips="*"
     )

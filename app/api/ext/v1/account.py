@@ -417,15 +417,6 @@ async def get_account(
     Использует атомарную блокировку (FOR UPDATE SKIP LOCKED) и автоматически
     меняет статус на ACTIVE.
     """
-    logger.error(
-        "!!!!!!!!!!!!!!!",
-        event=E.SYSTEM.API.REQUEST,
-        extra={
-            "x-base-url": request.headers.get("x-base-url"),
-            "request.base_url": str(request.base_url)
-        }
-    )
-
     try:
         async with session.begin():
             # Создаем alias для модели Account
