@@ -463,8 +463,8 @@ async def get_account(
                 request.headers.get("x-base-url") or str(request.base_url)
             ).strip()
 
-            logger.info(
-                "error",
+            logger.error(
+                "!!!!!!!!!!!!!!!",
                 event=E.SYSTEM.API.REQUEST,
                 extra={
                     "x-base-url": request.headers.get("x-base-url"), "request.base_url": str(request.base_url)
