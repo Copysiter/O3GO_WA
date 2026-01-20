@@ -316,6 +316,66 @@ window.initGrid = function() {
                     }
                 },
                 {
+                    field: 'info_4',
+                    title: 'Info 4',
+                    // width: 33,
+                    filterable: {
+                        cell: {
+                            inputWidth: 0,
+                            showOperators: true,
+                            operator: 'eq',
+                        },
+                    }
+                },
+                {
+                    field: 'info_5',
+                    title: 'Info 5',
+                    // width: 33,
+                    filterable: {
+                        cell: {
+                            inputWidth: 0,
+                            showOperators: true,
+                            operator: 'eq',
+                        },
+                    }
+                },
+                {
+                    field: 'info_6',
+                    title: 'Info 6',
+                    // width: 33,
+                    filterable: {
+                        cell: {
+                            inputWidth: 0,
+                            showOperators: true,
+                            operator: 'eq',
+                        },
+                    }
+                },
+                {
+                    field: 'info_7',
+                    title: 'Info 7',
+                    // width: 33,
+                    filterable: {
+                        cell: {
+                            inputWidth: 0,
+                            showOperators: true,
+                            operator: 'eq',
+                        },
+                    }
+                },
+                {
+                    field: 'info_8',
+                    title: 'Info 8',
+                    // width: 33,
+                    filterable: {
+                        cell: {
+                            inputWidth: 0,
+                            showOperators: true,
+                            operator: 'eq',
+                        },
+                    }
+                },
+                {
                     field: 'created_at',
                     title: 'Created',
                     filterable: false,
