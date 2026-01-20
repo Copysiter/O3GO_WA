@@ -1,5 +1,3 @@
-from typing import Optional
-
 from fastapi import (
     APIRouter, Query, Depends, HTTPException, status as http_status
 )
@@ -17,14 +15,19 @@ router = APIRouter()
 
 async def _update_session_status(
     db: AsyncSession,
-    id: Optional[int] = None,
-    ext_id: Optional[str] = None,
+    id: int | None = None,
+    ext_id: str | None = None,
     *,
     user_id: str,
     number: str,
-    info_1: Optional[str] = None,
-    info_2: Optional[str] = None,
-    info_3: Optional[str] = None,
+    info_1: str | None = None,
+    info_2: str | None = None,
+    info_3: str | None = None,
+    info_4: str | None = None,
+    info_5: str | None = None,
+    info_6: str | None = None,
+    info_7: str | None = None,
+    info_8: str | None = None,
     status: AccountStatus
 ) -> schemas.SessionStatusResponse:
     """Обновляет статус сессии, проверяя связанный аккаунт."""
@@ -51,14 +54,16 @@ async def _update_session_status(
         )
 
     obj_in = schemas.SessionUpdate(status=status)
-    for info in ['info_1', 'info_2', 'info_3']:
+    for info in [
+        'info_1', 'info_2', 'info_3',
+        'info_4', 'info_5', 'info_6',
+        'info_7', 'info_8'
+    ]:
         if locals()[info] is not None:
             setattr(obj_in, info, locals()[info])
 
     session = await crud.session.update(db, db_obj=session, obj_in=obj_in)
-    account = await crud.session.update(
-        db, db_obj=account, obj_in=schemas.SessionUpdate(status=status)
-    )
+    account = await crud.account.update(db, db_obj=account, obj_in=obj_in)
 
     return schemas.SessionStatusResponse(
         id=session.id,
@@ -81,14 +86,29 @@ async def start_session(
     number: str = Query(
         ..., max_length=64, description="Номер аккаунта"
     ),
-    info_1: Optional[str] = Query(
+    info_1: str | None = Query(
         None, max_length=256, description="Служебное инфо поле 1"
     ),
-    info_2: Optional[str] = Query(
+    info_2: str | None = Query(
         None, max_length=256, description="Служебное инфо поле 2"
     ),
-    info_3: Optional[str] = Query(
+    info_3: str | None = Query(
         None, max_length=256, description="Служебное инфо поле 3"
+    ),
+    info_4: str | None = Query(
+        None, max_length=256, description="Служебное инфо поле 4"
+    ),
+    info_5: str | None = Query(
+        None, max_length=256, description="Служебное инфо поле 5"
+    ),
+    info_6: str | None = Query(
+        None, max_length=256, description="Служебное инфо поле 6"
+    ),
+    info_7: str | None = Query(
+        None, max_length=256, description="Служебное инфо поле 7"
+    ),
+    info_8: str | None = Query(
+        None, max_length=256, description="Служебное инфо поле 8"
     ),
     user: models.User = Depends(deps.get_user_by_api_key),
 ) -> schemas.SessionStatusResponse:
@@ -114,7 +134,12 @@ async def start_session(
                     status=AccountStatus.ACTIVE,
                     info_1=info_1,
                     info_2=info_2,
-                    info_3=info_3
+                    info_3=info_3,
+                    info_4=info_4,
+                    info_5=info_5,
+                    info_6=info_6,
+                    info_7=info_7,
+                    info_8=info_8
                 )
             )
             await crud.session.update(
@@ -132,7 +157,12 @@ async def start_session(
                     status=AccountStatus.ACTIVE,
                     info_1=info_1,
                     info_2=info_2,
-                    info_3=info_3
+                    info_3=info_3,
+                    info_4=info_4,
+                    info_5=info_5,
+                    info_6=info_6,
+                    info_7=info_7,
+                    info_8=info_8
                 )
             )
 
@@ -144,7 +174,12 @@ async def start_session(
                 status=AccountStatus.ACTIVE,
                 info_1=info_1,
                 info_2=info_2,
-                info_3=info_3
+                info_3=info_3,
+                info_4=info_4,
+                info_5=info_5,
+                info_6=info_6,
+                info_7=info_7,
+                info_8=info_8
             )
         )
 
@@ -172,19 +207,34 @@ async def start_session(
 async def finish_session(
     *,
     db: AsyncSession = Depends(deps.get_db),
-    id: Optional[int] = Query(None, description="ID сессии аккаунта"),
-    ext_id: Optional[str] = Query(
+    id: int | None = Query(None, description="ID сессии аккаунта"),
+    ext_id: str | None = Query(
         None, description="Внешний ID сессии аккаунта"
     ),
     number: str = Query(..., max_length=64, description="Номер аккаунта"),
-    info_1: Optional[str] = Query(
+    info_1: str | None = Query(
         None, max_length=256, description="Служебное инфо поле 1"
     ),
-    info_2: Optional[str] = Query(
+    info_2: str | None = Query(
         None, max_length=256, description="Служебное инфо поле 2"
     ),
-    info_3: Optional[str] = Query(
+    info_3: str | None = Query(
         None, max_length=256, description="Служебное инфо поле 3"
+    ),
+    info_4: str | None = Query(
+        None, max_length=256, description="Служебное инфо поле 4"
+    ),
+    info_5: str | None = Query(
+        None, max_length=256, description="Служебное инфо поле 5"
+    ),
+    info_6: str | None = Query(
+        None, max_length=256, description="Служебное инфо поле 6"
+    ),
+    info_7: str | None = Query(
+        None, max_length=256, description="Служебное инфо поле 7"
+    ),
+    info_8: str | None = Query(
+        None, max_length=256, description="Служебное инфо поле 8"
     ),
     user: models.User = Depends(deps.get_user_by_api_key),
 ) -> schemas.SessionStatusResponse:
@@ -198,7 +248,12 @@ async def finish_session(
             status=AccountStatus.AVAILABLE,
             info_1=info_1,
             info_2=info_2,
-            info_3=info_3
+            info_3=info_3,
+            info_4=info_4,
+            info_5=info_5,
+            info_6=info_6,
+            info_7=info_7,
+            info_8=info_8
         )
     except Exception as e:
         logger.exception(
@@ -217,19 +272,34 @@ async def finish_session(
 async def ban_session(
     *,
     db: AsyncSession = Depends(deps.get_db),
-    id: Optional[int] = Query(None, description="ID сессии аккаунта"),
-    ext_id: Optional[str] = Query(
+    id: int | None = Query(None, description="ID сессии аккаунта"),
+    ext_id: str | None = Query(
         None, description="Внешний ID сессии аккаунта"
     ),
     number: str = Query(..., max_length=64, description="Номер аккаунта"),
-    info_1: Optional[str] = Query(
+    info_1: str | None = Query(
         None, max_length=256, description="Служебное инфо поле 1"
     ),
-    info_2: Optional[str] = Query(
+    info_2: str | None = Query(
         None, max_length=256, description="Служебное инфо поле 2"
     ),
-    info_3: Optional[str] = Query(
+    info_3: str | None = Query(
         None, max_length=256, description="Служебное инфо поле 3"
+    ),
+    info_4: str | None = Query(
+        None, max_length=256, description="Служебное инфо поле 4"
+    ),
+    info_5: str | None = Query(
+        None, max_length=256, description="Служебное инфо поле 5"
+    ),
+    info_6: str | None = Query(
+        None, max_length=256, description="Служебное инфо поле 6"
+    ),
+    info_7: str | None = Query(
+        None, max_length=256, description="Служебное инфо поле 7"
+    ),
+    info_8: str | None = Query(
+        None, max_length=256, description="Служебное инфо поле 8"
     ),
     user: models.User = Depends(deps.get_user_by_api_key),
 ) -> schemas.SessionStatusResponse:
@@ -243,7 +313,12 @@ async def ban_session(
             status=AccountStatus.BANNED,
             info_1=info_1,
             info_2=info_2,
-            info_3=info_3
+            info_3=info_3,
+            info_4=info_4,
+            info_5=info_5,
+            info_6=info_6,
+            info_7=info_7,
+            info_8=info_8
         )
     except Exception as e:
         logger.exception(
