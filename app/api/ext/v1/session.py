@@ -128,60 +128,60 @@ async def start_session(
         # Проверяем аккаунт, если нет — создаём
         account = await crud.account.get_by(db, number=number)
         if account:
+            # Формируем obj_in только с не-None значениями
+            obj_in = schemas.AccountUpdate(status=AccountStatus.ACTIVE)
+            for info in [
+                'info_1', 'info_2', 'info_3',
+                'info_4', 'info_5', 'info_6',
+                'info_7', 'info_8'
+            ]:
+                if locals()[info] is not None:
+                    setattr(obj_in, info, locals()[info])
+
             account = await crud.account.update(
-                db, db_obj=account,
-                obj_in=schemas.AccountUpdate(
-                    status=AccountStatus.ACTIVE,
-                    info_1=info_1,
-                    info_2=info_2,
-                    info_3=info_3,
-                    info_4=info_4,
-                    info_5=info_5,
-                    info_6=info_6,
-                    info_7=info_7,
-                    info_8=info_8
-                )
+                db, db_obj=account, obj_in=obj_in
             )
+
             await crud.session.update(
-                db, obj_in=schemas.SessionUpdate(status=SessionStatus.FINISHED),
+                db,
+                obj_in=schemas.SessionUpdate(status=SessionStatus.FINISHED),
                 filter={
                     "account_id": account.id,
                     "status__in": [SessionStatus.ACTIVE, SessionStatus.PAUSED]
                 }
             )
         else:
-            account = await crud.account.create(
-                db=db, obj_in=schemas.AccountCreate(
-                    number=number,
-                    user_id=user.id,
-                    status=AccountStatus.ACTIVE,
-                    info_1=info_1,
-                    info_2=info_2,
-                    info_3=info_3,
-                    info_4=info_4,
-                    info_5=info_5,
-                    info_6=info_6,
-                    info_7=info_7,
-                    info_8=info_8
-                )
+            # Формируем obj_in_create только с не-None значениями
+            obj_in = schemas.AccountCreate(
+                number=number,
+                user_id=user.id,
+                status=AccountStatus.ACTIVE
             )
+            for info in [
+                'info_1', 'info_2', 'info_3',
+                'info_4', 'info_5', 'info_6',
+                'info_7', 'info_8'
+            ]:
+                if locals()[info] is not None:
+                    setattr(obj_in, info, locals()[info])
+
+            account = await crud.account.create(db=db, obj_in=obj_in)
 
         # Создаём новую сессию
-        session = await crud.session.create(
-            db=db, obj_in=schemas.SessionCreate(
-                account_id=account.id,
-                ext_id=ext_id,
-                status=AccountStatus.ACTIVE,
-                info_1=info_1,
-                info_2=info_2,
-                info_3=info_3,
-                info_4=info_4,
-                info_5=info_5,
-                info_6=info_6,
-                info_7=info_7,
-                info_8=info_8
-            )
+        obj_in = schemas.SessionCreate(
+            account_id=account.id,
+            ext_id=ext_id,
+            status=AccountStatus.ACTIVE
         )
+        for info in [
+            'info_1', 'info_2', 'info_3',
+            'info_4', 'info_5', 'info_6',
+            'info_7', 'info_8'
+        ]:
+            if locals()[info] is not None:
+                setattr(obj_in, info, locals()[info])
+
+        session = await crud.session.create(db=db, obj_in=obj_in)
 
         return schemas.SessionStatusResponse(
             id=session.id,
