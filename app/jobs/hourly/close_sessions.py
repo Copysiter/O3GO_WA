@@ -12,7 +12,7 @@ from app.jobs import registry
 
 
 @registry.job(
-    hour="*", minute="36", id="close_sessions",
+    hour="*", minute="0", id="close_sessions",
     name="Закрытие сессий, неактивных старше 24 часов"
 )
 async def close_sessions():
