@@ -268,7 +268,7 @@ window.initGrid = function() {
                                 animation: false,
                                 dataSource: [
                                     {value: -1, text: "BANNED"},
-                                    {value: 0, text: "AVAILABLE"},
+                                    {value: 0, text: "FINISHED"},
                                     {value: 1, text: "ACTIVE"},
                                     {value: 2, text: "PAUSED"}
                                 ],
