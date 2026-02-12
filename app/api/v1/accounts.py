@@ -45,6 +45,7 @@ import uuid, shutil  # noqa
 
 from typing import Any
 from pathlib import Path
+from datetime import datetime, timedelta
 
 from fastapi import (
     APIRouter, Query, Depends, Request,
@@ -109,6 +110,17 @@ async def read_accounts(
             f.order_by = ["-id"]
         data = await crud.account.list(db, filter=f, skip=skip, limit=limit)
         count = await crud.account.count(db, filter=f)
+
+        now = datetime.utcnow()
+        data = list(map(
+            lambda item: (
+                setattr(item, 'status', models.AccountStatus.PAUSED) or item
+            ) if (
+                item.cooldown is not None and item.updated_at is not None
+                and now > item.updated_at + timedelta(minutes=item.cooldown)
+            ) else item, data
+        ))
+        
         return {'data': data, 'total': count}
     except Exception as e:
         logger.exception(

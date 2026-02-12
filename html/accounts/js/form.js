@@ -3,6 +3,15 @@ let accountFields = [{
     label: "Account Number",
     colSpan: 6
 }, {
+    field: "geo",
+    label: "Account GEO",
+    colSpan: 6
+}, {
+    field: "sep0",
+    colSpan: 12,
+    label: false,
+    editor: "<div class='separator mx-n15'></div>"
+}, {
     field: 'type',
     label: 'Account Type',
     colSpan: 6,
@@ -24,17 +33,13 @@ let accountFields = [{
         validation: { required: true }
     }
 }, {
-    field: "sep0",
-    colSpan: 12,
-    label: false,
-    editor: "<div class='separator mx-n15'></div>"
-}, {
-    field: "group",
-    label: "Account Group",
-    colSpan: 6
-}, {
-    field: "geo",
-    label: "Account GEO",
+    field: "attempts",
+    label: "Attempts",
+    editor: 'NumericTextBox',
+    editorOptions: {
+        format: "n0",
+        min: 1
+    },
     colSpan: 6
 }, {
     field: "sep1",

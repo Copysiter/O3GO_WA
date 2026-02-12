@@ -53,17 +53,47 @@ async def _update_session_status(
             detail="Account mismatch for provided session id and number",
         )
 
-    obj_in = schemas.SessionUpdate(status=status)
+    # Обновляем сессию - всегда с переданным статусом
+    session_obj_in = schemas.SessionUpdate(status=status)
     for info in [
         'info_1', 'info_2', 'info_3',
         'info_4', 'info_5', 'info_6',
         'info_7', 'info_8'
     ]:
         if locals()[info] is not None:
-            setattr(obj_in, info, locals()[info])
+            setattr(session_obj_in, info, locals()[info])
 
-    session = await crud.session.update(db, db_obj=session, obj_in=obj_in)
-    account = await crud.account.update(db, db_obj=account, obj_in=obj_in)
+    session = await crud.session.update(
+        db, db_obj=session, obj_in=session_obj_in
+    )
+    
+    # Для аккаунта применяем логику с attempts при бане
+    if status == AccountStatus.BANNED:
+        if account.attempts > 1:
+            account_status = AccountStatus.AVAILABLE
+            account_attempts = account.attempts - 1
+        else:
+            account_status = AccountStatus.BANNED
+            account_attempts = 0
+        
+        account_obj_in = schemas.AccountUpdate(
+            status=account_status, attempts=account_attempts
+        )
+    else:
+        account_obj_in = schemas.AccountUpdate(status=status)
+    
+    # Копируем info поля в account_obj_in
+    for info in [
+        'info_1', 'info_2', 'info_3',
+        'info_4', 'info_5', 'info_6',
+        'info_7', 'info_8'
+    ]:
+        if locals()[info] is not None:
+            setattr(account_obj_in, info, locals()[info])
+    
+    account = await crud.account.update(
+        db, db_obj=account, obj_in=account_obj_in
+    )
 
     return schemas.SessionStatusResponse(
         id=session.id,

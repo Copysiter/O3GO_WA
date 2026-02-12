@@ -60,24 +60,43 @@ async def _unlink_with_status(
             if row is None:
                 return {'code': '100', 'error': 'Device not found'}
 
-            statement = (
-                update(models.Account)
+            # Получаем аккаунт для проверки attempts
+            result = await session.execute(
+                select(models.Account)
                 .where(models.Account.id == int(obj_in.id_task))
-                .values(
-                    status=status,
-                    sent=func.coalesce(models.Account.sent, 0) + (obj_in.sent or 0)  # noqa
-                )
-                .returning(models.Account)
             )
+            account = result.scalar_one_or_none()
 
-            row = (await session.execute(statement)).first()
-            # if row is None:
-            #     return {'code': '100', 'error': 'Task not found'}
+            if account:
+                # Определяем финальный статус для аккаунта
+                if status == AccountStatus.BANNED:
+                    if account.attempts > 1:
+                        final_status = AccountStatus.AVAILABLE
+                        new_attempts = account.attempts - 1
+                    else:
+                        final_status = AccountStatus.BANNED
+                        new_attempts = 0
+                else:
+                    final_status = status
+                    new_attempts = account.attempts
+
+                statement = (
+                    update(models.Account)
+                    .where(models.Account.id == int(obj_in.id_task))
+                    .values(
+                        status=final_status,
+                        attempts=new_attempts,
+                        sent=func.coalesce(models.Account.sent, 0) + (obj_in.sent or 0)  # noqa
+                    )
+                    .returning(models.Account)
+                )
+                _ = (await session.execute(statement)).first()
+
             return {'code': '0'}
+
     except Exception as e:
         logging.exception(
-            'Unlink account error'
-            f'{type(e).__name__}: {str(e)}'
+            f'Unlink account error {type(e).__name__}: {str(e)}'
         )
         return {'code': '100', 'error': f'{type(e).__name__}: {e}'}
 

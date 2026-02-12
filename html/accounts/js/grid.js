@@ -402,6 +402,11 @@ window.initGrid = function() {
                             });
                         }
                     }
+                },
+                {
+                    field: "attempts",
+                    title: "Attempts",
+                    filterable: false
                 }].concat(user_column).concat([{
                     field: 'info_1',
                     title: 'Info 1',

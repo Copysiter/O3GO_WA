@@ -45,6 +45,9 @@ class Account(Base):
     )
     limit: Mapped[int] = mapped_column(Integer, nullable=True)
     cooldown: Mapped[int] = mapped_column(Integer, nullable=True)
+    attempts: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=1, server_default=text("1")
+    )
     status: Mapped[AccountStatus] = mapped_column(
         SmallInteger,
         default=AccountStatus.AVAILABLE, nullable=False, index=True

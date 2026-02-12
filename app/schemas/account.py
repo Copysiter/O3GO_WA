@@ -31,6 +31,9 @@ class AccountBase(BaseModel):
     cooldown: int | None = Field(
         None, description='Пауза перед повторной отправкой сообщений'
     )
+    attempts: int = Field(
+        1, description='Допустимое количество банов'
+    )
     session_count: int | None = Field(
         None, description="Исходное название архива"
     )
