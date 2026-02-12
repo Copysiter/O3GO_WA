@@ -43,7 +43,7 @@ async def _update_session_status(
     if not session or session.account.user_id != user_id:
         raise HTTPException(
             status_code=http_status.HTTP_404_NOT_FOUND,
-            detail=f"Session not found",
+            detail=f"Session '{ext_id}' not found",
         )
 
     account = await crud.account.get(db, session.account_id)

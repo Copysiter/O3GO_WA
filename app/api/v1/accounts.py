@@ -45,7 +45,7 @@ import uuid, shutil  # noqa
 
 from typing import Any
 from pathlib import Path
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from fastapi import (
     APIRouter, Query, Depends, Request,
@@ -111,7 +111,7 @@ async def read_accounts(
         data = await crud.account.list(db, filter=f, skip=skip, limit=limit)
         count = await crud.account.count(db, filter=f)
 
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         data = list(map(
             lambda item: (
                 setattr(item, 'status', models.AccountStatus.PAUSED) or item
