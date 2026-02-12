@@ -56,6 +56,7 @@ from fastapi.responses import JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.logger import logger, E
+from app.models.account import AccountStatus
 from app.crud.filter import FilterDepends
 
 import app.deps as deps
@@ -114,7 +115,7 @@ async def read_accounts(
         now = datetime.now(timezone.utc)
         data = list(map(
             lambda item: (
-                setattr(item, 'status', models.AccountStatus.PAUSED) or item
+                setattr(item, 'status', AccountStatus.PAUSED) or item
             ) if (
                 item.cooldown is not None and item.updated_at is not None
                 and now > item.updated_at + timedelta(minutes=item.cooldown)
