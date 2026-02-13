@@ -118,7 +118,7 @@ async def read_accounts(
                 setattr(item, 'status', AccountStatus.PAUSED) or item
             ) if (
                 item.cooldown is not None and item.updated_at is not None
-                and now > item.updated_at + timedelta(minutes=item.cooldown)
+                and item.updated_at + timedelta(minutes=item.cooldown) > now
             ) else item, data
         ))
         
