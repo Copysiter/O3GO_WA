@@ -101,9 +101,6 @@ window.initGrid = function() {
                             request.setRequestHeader('Authorization', `${token_type} ${access_token}`);
                         },
                     },
-                    // parameterMap: function (options, type) {
-                    //     return kendo.stringify(options);
-                    // },
                     parameterMap: function (data, type) {
                         if (data.hasOwnProperty('take')) {
                             data.limit = data.take;
@@ -115,11 +112,10 @@ window.initGrid = function() {
                         if (data.hasOwnProperty('pageSize')) {
                             delete data.pageSize;
                         }
-                        if (data.hasOwnProperty('filter') && data.filter) {
-                            data.filter = data.filter.filters;
+                        if (type === 'read') {
+                            const params = window.kendoToFastapiQuery(data);
+                            return Object.fromEntries(params);
                         }
-
-                        if (type === 'read') return data;
                         return kendo.stringify(data);
                     },
                 },

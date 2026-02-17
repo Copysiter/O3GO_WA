@@ -43,7 +43,8 @@ def _build_account_filter_conditions(filter_obj, model_alias, user_id):
     conditions = []
     
     # Обязательные условия
-    target_status = filter_obj.status if filter_obj.status is not None else AccountStatus.AVAILABLE
+    target_status = filter_obj.status \
+        if filter_obj.status is not None else AccountStatus.AVAILABLE
     conditions.append(model_alias.status == target_status)
     conditions.append(model_alias.user_id == user_id)
     
@@ -53,7 +54,8 @@ def _build_account_filter_conditions(filter_obj, model_alias, user_id):
             model_alias.updated_at.is_(None),
             model_alias.cooldown.is_(None),
             datetime.utcnow() > (
-                model_alias.updated_at + func.make_interval(0, 0, 0, 0, 0, model_alias.cooldown, 0)
+                model_alias.updated_at +
+                func.make_interval(0, 0, 0, 0, 0, model_alias.cooldown, 0)
             )
         )
     )
@@ -78,7 +80,9 @@ def _build_account_filter_conditions(filter_obj, model_alias, user_id):
     if filter_obj.number__in:
         conditions.append(model_alias.number.in_(filter_obj.number__in))
     if filter_obj.number__ilike:
-        conditions.append(model_alias.number.ilike(f"%{filter_obj.number__ilike}%"))
+        conditions.append(
+            model_alias.number.ilike(f"%{filter_obj.number__ilike}%")
+        )
     
     # type фильтры
     if filter_obj.type is not None:
@@ -106,11 +110,17 @@ def _build_account_filter_conditions(filter_obj, model_alias, user_id):
         if getattr(filter_obj, info_field, None):
             conditions.append(info_attr == getattr(filter_obj, info_field))
         if getattr(filter_obj, f"{info_field}__neq", None):
-            conditions.append(info_attr != getattr(filter_obj, f"{info_field}__neq"))
+            conditions.append(
+                info_attr != getattr(filter_obj, f"{info_field}__neq")
+            )
         if getattr(filter_obj, f"{info_field}__in", None):
-            conditions.append(info_attr.in_(getattr(filter_obj, f"{info_field}__in")))
+            conditions.append(
+                info_attr.in_(getattr(filter_obj, f"{info_field}__in"))
+            )
         if getattr(filter_obj, f"{info_field}__ilike", None):
-            conditions.append(info_attr.ilike(f"%{getattr(filter_obj, f'{info_field}__ilike')}%"))
+            conditions.append(info_attr.ilike(
+                f"%{getattr(filter_obj, f'{info_field}__ilike')}%")
+            )
     
     return conditions
 
@@ -202,7 +212,9 @@ async def upload_archive(
                             extra={
                                 'user_id': user.id,
                                 'file_path': str(old_file_path),
-                                'error': {'type': type(e).__name__, 'msg': str(e)}
+                                'error': {
+                                    'type': type(e).__name__, 'msg': str(e)
+                                }
                             }
                         )
                 else:
@@ -236,7 +248,9 @@ async def upload_archive(
                             extra={
                                 'user_id': user.id,
                                 'file_path': str(old_profile_path),
-                                'error': {'type': type(e).__name__, 'msg': str(e)}
+                                'error': {
+                                    'type': type(e).__name__, 'msg': str(e)
+                                }
                             }
                         )
                 else:
@@ -423,7 +437,8 @@ async def get_account(
             A = aliased(models.Account)
             
             # Строим список WHERE условий с учетом всех фильтров
-            filter_conditions = _build_account_filter_conditions(filter, A, user.id)
+            filter_conditions = \
+                _build_account_filter_conditions(filter, A, user.id)
             
             # Создаем CTE для блокировки аккаунта
             locked = (
@@ -438,7 +453,9 @@ async def get_account(
             # Обновляем статус на ACTIVE с использованием RETURNING
             statement = (
                 update(models.Account)
-                .where(models.Account.id == select(locked.c.id).scalar_subquery())
+                .where(
+                    models.Account.id == select(locked.c.id).scalar_subquery()
+                )
                 .values(status=AccountStatus.ACTIVE)
                 .returning(models.Account)
             )
@@ -513,7 +530,9 @@ async def download_archive(
     Скачивание архива аккаунта по UUID.
     """
     try:
-        account = await crud.account.get_by(db=session, uuid=uuid)
+        account = await crud.account.get_by(
+            db=session, uuid=uuid, user_id=user.id
+        )
         
         if not account:
             logger.warning(
@@ -591,7 +610,9 @@ async def download_archive(
     Скачивание текстового файла профиля по UUID.
     """
     try:
-        account = await crud.account.get_by(db=session, uuid=uuid)
+        account = await crud.account.get_by(
+            db=session, uuid=uuid, user_id=user.id
+        )
 
         if not account:
             logger.warning(

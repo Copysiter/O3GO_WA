@@ -1,11 +1,13 @@
 from typing import Optional, List
 from datetime import datetime, timezone
 
+from sqlalchemy import Select
 from pydantic import BaseModel, Field, ConfigDict
 
+from app.crud.filter.base import FilterDepends, with_prefix
 from app.crud.filter.sqlalchemy import Filter
 from app.models.session import Session as SessionModel, AccountStatus
-from app.schemas.account import Account
+from app.schemas.account import Account, AccountFilter
 
 
 class SessionBase(BaseModel):
@@ -144,7 +146,26 @@ class SessionFilter(Filter):
     info_8__in: list[str] | None = None
     info_8__ilike: str | None = None
 
+    # Вложенный фильтр по аккаунту
+    account: AccountFilter | None = FilterDepends(
+        with_prefix("account", AccountFilter)
+    )
+
     order_by: Optional[list[str]] = None
+
+    # def filter(self, query: Select) -> Select:
+    #     account_filter = getattr(self, "account", None)
+    #     if account_filter is not None and dict(
+    #         account_filter.filtering_fields
+    #     ):
+    #         query = query.join(SessionModel.account)
+    #     return super().filter(query)
+
+    def filter(self, query: Select) -> Select:
+        account_filter = getattr(self, "account", None)
+        if account_filter is not None:
+            query = query.join(SessionModel.account)
+        return super().filter(query)
 
     class Constants(Filter.Constants):
         model = SessionModel

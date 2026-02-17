@@ -1,11 +1,14 @@
 from typing import Optional, List
 from datetime import datetime, timezone
 
+from sqlalchemy import Select
 from pydantic import BaseModel, Field, ConfigDict
 
+from app.crud.filter.base import FilterDepends, with_prefix
 from app.crud.filter.sqlalchemy import Filter
 from app.models.message import Message as MessageModel, MessageStatus
 from app.schemas.session import Session
+from app.schemas.session import SessionFilter
 
 
 class MessageBase(BaseModel):
@@ -156,7 +159,19 @@ class MessageFilter(Filter):
     info_8__in: list[str] | None = None
     info_8__ilike: str | None = None
 
-    order_by: Optional[list[str]] = None
+    # Вложенный фильтр по сессии
+    session: SessionFilter | None = FilterDepends(
+        with_prefix("session", SessionFilter)
+    )
+
+    order_by: list[str] | None = None
+
+    def filter(self, query: Select) -> Select:
+        session_filter = getattr(self, "session", None)
+        if session_filter is not None and dict(
+                session_filter.filtering_fields):
+            query = query.join(MessageModel.session)
+        return super().filter(query)
 
     class Constants(Filter.Constants):
         model = MessageModel

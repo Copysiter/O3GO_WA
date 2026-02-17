@@ -64,7 +64,7 @@ async def read_sessions(
     f: schemas.SessionFilter = FilterDepends(schemas.SessionFilter),
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=1000),
-    _current_user: models.User = Depends(deps.get_current_active_user),
+    current_user: models.User = Depends(deps.get_current_active_user)
 ) -> Any:
     """
     Возвращает список сессий аккаунтов с поддержкой фильтрации,
@@ -92,6 +92,11 @@ async def read_sessions(
     try:
         if not getattr(f, "order_by", None):
             f.order_by = ["-id"]
+        if not current_user.is_superuser:
+            if f.account is None:
+                f.account = schemas.AccountFilter(user_id=current_user.id)
+            else:
+                f.account.user_id = current_user.id
         data = await crud.session.list(db, filter=f, skip=skip, limit=limit)
         count = await crud.session.count(db, filter=f)
         return {'data': data, 'total': count}

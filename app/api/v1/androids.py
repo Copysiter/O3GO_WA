@@ -21,7 +21,7 @@ async def read_androids(
     f: schemas.AndroidFilter = FilterDepends(schemas.AndroidFilter),
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=1000),
-    _current_user: models.User = Depends(deps.get_current_active_user),
+    current_user: models.User = Depends(deps.get_current_active_user)
 ) -> Any:
     """
     Возвращает список Android устройств с поддержкой фильтрации,
@@ -47,6 +47,8 @@ async def read_androids(
         - `GET /androids?user_id=42&order_by=device&order_by=-id`
     """
     try:
+        if not current_user.is_superuser:
+            f.user_id = current_user.id
         if not getattr(f, "order_by", None):
             f.order_by = ["-id"]
         data = await crud.android.list(db, filter=f, skip=skip, limit=limit)

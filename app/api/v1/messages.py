@@ -64,7 +64,7 @@ async def read_messages(
     f: schemas.MessageFilter = FilterDepends(schemas.MessageFilter),
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=1000),
-    _current_user: models.User = Depends(deps.get_current_active_user),
+    current_user: models.User = Depends(deps.get_current_active_user),
 ) -> Any:
     """
     Возвращает список сообщений с поддержкой фильтрации,
@@ -92,6 +92,16 @@ async def read_messages(
     try:
         if not getattr(f, "order_by", None):
             f.order_by = ["-id"]
+        if not current_user.is_superuser:
+            if f.session is None:
+                f.session = schemas.SessionFilter(
+                    account=schemas.AccountFilter(user_id=current_user.id)
+                )
+            elif f.session.account is None:
+                f.session.account = \
+                    schemas.AccountFilter(user_id=current_user.id)
+            else:
+                f.session.account.user_id = current_user.id
         data = await crud.message.list(db, filter=f, skip=skip, limit=limit)
         count = await crud.message.count(db, filter=f)
         return {'data': data, 'total': count}

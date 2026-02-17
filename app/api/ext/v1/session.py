@@ -156,7 +156,9 @@ async def start_session(
             )
 
         # Проверяем аккаунт, если нет — создаём
-        account = await crud.account.get_by(db, number=number)
+        account = await crud.account.get_by(
+            db, number=number, user_id=user.id
+        )
         if account:
             # Формируем obj_in только с не-None значениями
             obj_in = schemas.AccountUpdate(status=AccountStatus.ACTIVE)

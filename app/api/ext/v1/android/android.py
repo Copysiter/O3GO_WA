@@ -76,12 +76,14 @@ async def power_device(
     db: AsyncSession = Depends(deps.get_db),
     obj_in: schemas.AndroidPowerRequest = \
         Depends(deps.as_form(schemas.AndroidPowerRequest)),
-    _ = Depends(deps.get_user_by_api_key),
+    user = Depends(deps.get_user_by_api_key),
 ) -> Any:
     """
     Power Device.
     """
-    db_obj = await crud.android.get_by(db=db, device=obj_in.device)
+    db_obj = await crud.android.get_by(
+        db=db, device=obj_in.device, user_id=user.id
+    )
     if not db_obj:
         raise HTTPException(
             status_code=404, detail='Android Device not found'

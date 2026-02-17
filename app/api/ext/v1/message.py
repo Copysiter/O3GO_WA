@@ -2,7 +2,6 @@ from typing import Optional, Literal
 
 from fastapi import APIRouter, Query, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm.sync import update
 from sqlalchemy import column
 
 from app.core.logger import logger, E
@@ -47,7 +46,7 @@ async def create_message(
     """Создаёт новое сообщение, привязанное к сессии."""
     try:
         if session_id:
-            session = await crud.session.get(db, session_id)
+            session = await crud.session.get_by(db, session_id=session_id)
         elif session_ext_id:
             session = await crud.session.get_by(db, ext_id=session_ext_id)
         else:
@@ -55,7 +54,7 @@ async def create_message(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
                 detail="Missing required field: 'session_id' or 'session_ext_id'."
             )
-        if not session:
+        if not session or session.account.user_id != user.id:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=f"Session with id={session_id} not found",
@@ -120,7 +119,7 @@ async def update_message_status(
                 detail=f"Message with id={id} not found",
             )
         new_status = getattr(
-            schemas.MessageStatus, status.upper(), message.status
+            MessageStatus, status.upper(), message.status
         )
         obj_in = schemas.MessageUpdate(status=new_status)
         for info in ['info_1', 'info_2', 'info_3']:
@@ -132,7 +131,7 @@ async def update_message_status(
 
         return schemas.MessageStatusResponse(
             id=message.id,
-            status=schemas.MessageStatus(message.status).name.lower()
+            status=MessageStatus(message.status).name.lower()
         )
     except Exception as e:
         logger.exception(
