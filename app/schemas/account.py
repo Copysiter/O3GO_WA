@@ -223,6 +223,8 @@ class AccountFilter(Filter):
     info_8__in: list[str] | None = None
     info_8__ilike: str | None = None
 
+    file_name__isnull: bool | None = None
+
     order_by: list[str] | None = None
 
     class Constants(Filter.Constants):

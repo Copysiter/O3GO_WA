@@ -59,6 +59,13 @@ def _build_account_filter_conditions(filter_obj, model_alias, user_id):
             )
         )
     )
+
+    # file_name фильтр (IS NULL / IS NOT NULL)
+    if filter_obj.file_name__isnull is not None:
+        if filter_obj.file_name__isnull:
+            conditions.append(model_alias.file_name.is_(None))
+        else:
+            conditions.append(model_alias.file_name.is_not(None))
     
     # id фильтры
     if filter_obj.id is not None:
@@ -435,7 +442,11 @@ async def get_account(
         async with session.begin():
             # Создаем alias для модели Account
             A = aliased(models.Account)
-            
+
+            # Принудительный фильтр: file_name IS NOT NULL
+            if filter.file_name__isnull is None:
+                filter.file_name__isnull = False
+
             # Строим список WHERE условий с учетом всех фильтров
             filter_conditions = \
                 _build_account_filter_conditions(filter, A, user.id)
