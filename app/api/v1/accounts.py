@@ -43,7 +43,7 @@
 
 import uuid, shutil  # noqa
 
-from typing import Any
+from typing import Any, List, Dict
 from pathlib import Path
 from datetime import datetime, timedelta, timezone
 
@@ -73,6 +73,76 @@ PROFILE_UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
 
 router = APIRouter()
+
+
+def delete_account_files(account: models.Account) -> Dict[str, Any]:
+    """
+    Удаляет файлы, связанные с аккаунтом (архив и профиль).
+
+    Args:
+        account: Объект аккаунта с информацией о файлах.
+
+    Returns:
+        Словарь с информацией об удалённых файлах и возникших ошибках.
+        Формат: {
+            "deleted_files": [...],
+            "errors": [...]
+        }
+    """
+    result = {
+        "deleted_files": [],
+        "errors": []
+    }
+
+    # Удаление основного архива аккаунта (file_name)
+    if account.file_name:
+        file_path = UPLOAD_DIR / account.file_name
+        try:
+            if file_path.exists():
+                file_path.unlink()
+                result["deleted_files"].append(str(file_path))
+                logger.info(
+                    f"Deleted account file: {file_path}",
+                    event=E.SYSTEM.APP.SUCCESS,
+                    extra={"account_id": account.id}
+                )
+        except Exception as e:
+            error_msg = f"{type(e).__name__} - {str(e)}"
+            result["errors"].append(error_msg)
+            logger.error(
+                event=E.SYSTEM.API.ERROR,
+                extra={
+                    "error": {"type": type(e).__name__, "msg": str(e)},
+                    "file_path": str(file_path),
+                    "account_id": account.id
+                }
+            )
+
+    # Удаление файла профиля (profile_file_name)
+    if account.profile_file_name:
+        profile_path = PROFILE_UPLOAD_DIR / account.profile_file_name
+        try:
+            if profile_path.exists():
+                profile_path.unlink()
+                result["deleted_files"].append(str(profile_path))
+                logger.info(
+                    f"Deleted profile file: {profile_path}",
+                    event=E.SYSTEM.APP.SUCCESS,
+                    extra={"account_id": account.id}
+                )
+        except Exception as e:
+            error_msg = f"{type(e).__name__} - {str(e)}"
+            result["errors"].append(error_msg)
+            logger.error(
+                event=E.SYSTEM.API.ERROR,
+                extra={
+                    "error": {"type": type(e).__name__, "msg": str(e)},
+                    "file_path": str(profile_path),
+                    "account_id": account.id
+                }
+            )
+
+    return result
 
 
 @router.get('/', response_model=schemas.AccountList)
@@ -215,7 +285,9 @@ async def update_account(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail='The account with this ID does not exist'
             )
-        account = await crud.account.update(db=db, db_obj=db_obj, obj_in=obj_in)
+        account = await crud.account.update(
+            db=db, db_obj=db_obj, obj_in=obj_in
+        )
         return account
     except Exception as e:
         logger.exception(
@@ -272,7 +344,11 @@ async def delete_account(
     _current_user: models.User = Depends(deps.get_current_active_user),
 ) -> Any:
     """
-    Удаляет аккаунт по идентификатору.
+    Удаляет аккаунт по идентификатору вместе со связанными файлами.
+
+    Перед удалением аккаунта из базы данных проверяет наличие и удаляет:
+    - Архив аккаунта (file_name) из папки app/upload/wa
+    - Файл профиля (profile_file_name) из папки app/upload/wa/profile
 
     Args:
         db: Асинхронная сессия базы данных.
@@ -292,11 +368,144 @@ async def delete_account(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail='The account with this ID does not exist'
             )
+
+        # Удаление связанных файлов перед удалением из БД
+        file_deletion_result = delete_account_files(account)
+
+        # Логируем результат удаления файлов
+        if file_deletion_result["deleted_files"]:
+            logger.info(
+                "Account files deleted successfully",
+                event=E.SYSTEM.APP.SUCCESS,
+                extra={
+                    "account_id": id,
+                    "deleted_files": file_deletion_result["deleted_files"]
+                }
+            )
+
+        if file_deletion_result["errors"]:
+            logger.warning(
+                "Some files could not be deleted",
+                event=E.SYSTEM.APP.FAILURE,
+                extra={
+                    "account_id": id,
+                    "errors": file_deletion_result["errors"]
+                }
+            )
+
+        # Удаление записи из базы данных
         account = await crud.account.delete(db=db, id=id)
         return account
+
+    except HTTPException:
+        raise
     except Exception as e:
         logger.exception(
             event=E.SYSTEM.API.ERROR, extra={
+                "error": {"type": type(e).__name__, "msg": str(e)},
+                "account_id": id
+            }
+        )
+        raise e
+
+
+@router.post('/delete', response_model=List[schemas.Account])
+async def delete_accounts(
+    *,
+    db: AsyncSession = Depends(deps.get_db),
+    data: schemas.AccountIds,
+    _: models.User = Depends(deps.get_current_active_user),
+) -> Any:
+    """
+    Удаляет аккаунты по списку идентификаторов вместе со связанными файлами.
+
+    Для каждого аккаунта перед удалением из базы данных проверяет и удаляет:
+    - Архив аккаунта (file_name) из папки app/upload/wa
+    - Файл профиля (profile_file_name) из папки app/upload/wa/profile
+
+    Если аккаунт не найден, он пропускается без ошибки. Ошибки удаления файлов
+    логируются, но не останавливают процесс удаления других аккаунтов.
+    Все удаления в БД выполняются в одной транзакции.
+
+    Args:
+        db: Асинхронная сессия базы данных.
+        data: Список идентификаторов аккаунтов для удаления.
+        _: Текущий активный пользователь.
+
+    Returns:
+        Список удалённых объектов `schemas.Account`.
+    """
+    try:
+        accounts = []
+        deletion_stats = {
+            "accounts_deleted": 0,
+            "files_deleted": 0,
+            "errors": []
+        }
+
+        for id in data.ids:
+            try:
+                # Получаем аккаунт для доступа к информации о файлах
+                account = await crud.account.get(db=db, id=id)
+
+                if not account:
+                    logger.warning(
+                        "Account not found, skipping",
+                        event=E.SYSTEM.APP.FAILURE, extra={"account_id": id}
+                    )
+                    continue
+
+                # Удаление связанных файлов
+                file_deletion_result = delete_account_files(account)
+
+                if file_deletion_result["deleted_files"]:
+                    deletion_stats["files_deleted"] += \
+                        len(file_deletion_result["deleted_files"])
+
+                if file_deletion_result["errors"]:
+                    deletion_stats["errors"].extend(
+                        file_deletion_result["errors"]
+                    )
+
+                # Удаление записи из базы данных без коммита
+                deleted_account = await crud.account.delete(
+                    db=db, id=id, commit=False
+                )
+                accounts.append(deleted_account)
+                deletion_stats["accounts_deleted"] += 1
+
+            except Exception as e:
+                error_msg = f"{id}: {type(e).__name__} - {str(e)}"
+                deletion_stats["errors"].append(error_msg)
+                logger.exception(
+                    "Failed to delete account",
+                    event=E.SYSTEM.API.ERROR,
+                    extra={
+                        "error": {"type": type(e).__name__, "msg": str(e)},
+                        "account_id": id
+                    }
+                )
+                # Откатываем транзакцию при ошибке
+                await db.rollback()
+                raise
+
+        # Коммитим все изменения разом
+        await db.commit()
+
+        # Логирование итоговой статистики
+        logger.info(
+            "Batch account deletion completed",
+            event=E.SYSTEM.APP.SUCCESS,
+            extra={"stats": deletion_stats}
+        )
+
+        return accounts
+
+    except Exception as e:
+        logger.exception(
+            "Critical error during batch deletion",
+            event=E.SYSTEM.API.ERROR,
+            extra={
                 "error": {"type": type(e).__name__, "msg": str(e)}
             }
         )

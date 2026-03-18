@@ -16,7 +16,7 @@ from .version import (
 )  # noqa
 from .account import (  #  # noqa
     Account, AccountUpload, AccountCreate, AccountMultiCreate, AccountUpdate,  # noqa
-    AccountInDB, AccountList, AccountFilter  # noqa
+    AccountInDB, AccountList, AccountIds, AccountFilter  # noqa
 )
 from .session import (  # noqa
     Session, SessionCreate, SessionUpdate, SessionInDB,  # noqa

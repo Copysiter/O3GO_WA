@@ -238,7 +238,15 @@ window.initGrid = function() {
                 refresh: true,
                 pageSizes: [100, 250, 500],
             },
-            change: function (e) {},
+            change: function (e) {
+                let toolbar = $('#accounts-toolbar').data('kendoToolBar');
+                let rows = this.select();
+                if (rows.length > 0) {
+                    toolbar.show($('#delete'));
+                } else {
+                    toolbar.hide($('#delete'));
+                }
+            },
             excel: {
                 fileName: 'o3go_accounts.xlsx',
                 allPages: true,

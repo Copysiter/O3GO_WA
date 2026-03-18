@@ -132,6 +132,11 @@ class AccountList(BaseModel):
     total: int = 0
 
 
+class AccountIds(BaseModel):
+    """Схема списка идентификаторов аккаунтов"""
+    ids: List[int]
+
+
 class AccountFilter(Filter):
     """Фильтр поиска аккаунтов по различным полям модели"""
     id: int | None = None
