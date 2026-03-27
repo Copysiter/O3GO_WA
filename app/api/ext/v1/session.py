@@ -64,9 +64,9 @@ async def _update_session_status(
             setattr(session_obj_in, info, locals()[info])
 
     session = await crud.session.update(
-        db, db_obj=session, obj_in=session_obj_in
+        db, db_obj=session, obj_in=session_obj_in, commit=False
     )
-    
+
     # Для аккаунта применяем логику с attempts при бане
     if status == AccountStatus.BANNED:
         if account.attempts > 1:
@@ -75,13 +75,13 @@ async def _update_session_status(
         else:
             account_status = AccountStatus.BANNED
             account_attempts = 0
-        
+
         account_obj_in = schemas.AccountUpdate(
             status=account_status, attempts=account_attempts
         )
     else:
         account_obj_in = schemas.AccountUpdate(status=status)
-    
+
     # Копируем info поля в account_obj_in
     for info in [
         'info_1', 'info_2', 'info_3',
@@ -90,10 +90,12 @@ async def _update_session_status(
     ]:
         if locals()[info] is not None:
             setattr(account_obj_in, info, locals()[info])
-    
+
     account = await crud.account.update(
-        db, db_obj=account, obj_in=account_obj_in
+        db, db_obj=account, obj_in=account_obj_in, commit=False
     )
+
+    await db.commit()
 
     return schemas.SessionStatusResponse(
         id=session.id,
@@ -171,7 +173,7 @@ async def start_session(
                     setattr(obj_in, info, locals()[info])
 
             account = await crud.account.update(
-                db, db_obj=account, obj_in=obj_in
+                db, db_obj=account, obj_in=obj_in, commit=False
             )
 
             await crud.session.update(
@@ -180,7 +182,8 @@ async def start_session(
                 filter={
                     "account_id": account.id,
                     "status__in": [SessionStatus.ACTIVE, SessionStatus.PAUSED]
-                }
+                },
+                commit=False
             )
         else:
             # Формируем obj_in_create только с не-None значениями
@@ -197,7 +200,7 @@ async def start_session(
                 if locals()[info] is not None:
                     setattr(obj_in, info, locals()[info])
 
-            account = await crud.account.create(db=db, obj_in=obj_in)
+            account = await crud.account.create(db=db, obj_in=obj_in, commit=False)
 
         # Создаём новую сессию
         obj_in = schemas.SessionCreate(
@@ -213,7 +216,9 @@ async def start_session(
             if locals()[info] is not None:
                 setattr(obj_in, info, locals()[info])
 
-        session = await crud.session.create(db=db, obj_in=obj_in)
+        session = await crud.session.create(db=db, obj_in=obj_in, commit=False)
+
+        await db.commit()
 
         return schemas.SessionStatusResponse(
             id=session.id,

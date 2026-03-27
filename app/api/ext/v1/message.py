@@ -46,7 +46,7 @@ async def create_message(
     """Создаёт новое сообщение, привязанное к сессии."""
     try:
         if session_id:
-            session = await crud.session.get_by(db, session_id=session_id)
+            session = await crud.session.get_by(db, id=session_id)
         elif session_ext_id:
             session = await crud.session.get_by(db, ext_id=session_ext_id)
         else:
