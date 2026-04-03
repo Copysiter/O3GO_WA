@@ -1,8 +1,10 @@
 from uuid import UUID
 from typing import List
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 
 from pydantic import BaseModel, Field, ConfigDict
+from sqlalchemy import and_, or_, func
+from sqlalchemy.sql import Select
 
 from app.crud.filter.sqlalchemy import Filter
 from app.models.account import Account as AccountModel, AccountStatus
@@ -232,8 +234,151 @@ class AccountFilter(Filter):
 
     order_by: list[str] | None = None
 
+    # Внутренний флаг для отслеживания запроса PAUSED статуса
+    _is_paused_filter: bool = False
+
     class Constants(Filter.Constants):
         model = AccountModel
 
         # имя поля сортировки, совпадающий с атрибутом схемы
         ordering_field_name = "order_by"
+
+    def filter(self, query: Select) -> Select:
+        """
+        Метод filter с обработкой статусов PAUSED и AVAILABLE.
+
+        Статус PAUSED является виртуальным и определяется как:
+        - status == AVAILABLE
+        - cooldown IS NOT NULL
+        - updated_at + INTERVAL cooldown MINUTES > NOW()
+
+        Статус AVAILABLE должен исключать аккаунты в cooldown.
+        """
+        # Проверяем, есть ли фильтр по статусу AVAILABLE
+        if self.status == AccountStatus.AVAILABLE:
+            # Убираем фильтр по статусу из обработки родительским методом
+            original_status = self.status
+            self.status = None
+
+            # Применяем все остальные фильтры
+            query = super().filter(query)
+
+            # Добавляем условие для AVAILABLE статуса:
+            # Ищем аккаунты со статусом AVAILABLE, которые НЕ в cooldown
+            now = datetime.now(timezone.utc)
+            query = query.where(
+                and_(
+                    AccountModel.status == AccountStatus.AVAILABLE,
+                    or_(
+                        # Либо cooldown не установлен
+                        AccountModel.cooldown.is_(None),
+                        # Либо updated_at не установлен (новые аккаунты)
+                        AccountModel.updated_at.is_(None),
+                        # Либо cooldown уже истек
+                        AccountModel.updated_at + func.make_interval(
+                            0, 0, 0, 0, 0, AccountModel.cooldown
+                        ) <= now
+                    )
+                )
+            )
+
+            # Восстанавливаем значение для работы других частей кода
+            self.status = original_status
+
+        # Проверяем, есть ли фильтр по статусу PAUSED
+        elif self.status == AccountStatus.PAUSED:
+            # Сохраняем флаг для использования в эндпоинте
+            self._is_paused_filter = True
+
+            # Убираем фильтр по статусу из обработки родительским методом
+            original_status = self.status
+            self.status = None
+
+            # Применяем все остальные фильтры
+            query = super().filter(query)
+
+            # Добавляем условие для PAUSED статуса:
+            # Ищем аккаунты со статусом AVAILABLE, с неистекшим cooldown
+            # Используем make_interval для создания интервала из минут
+            now = datetime.now(timezone.utc)
+            query = query.where(
+                and_(
+                    AccountModel.status == AccountStatus.AVAILABLE,
+                    AccountModel.cooldown.isnot(None),
+                    AccountModel.updated_at.isnot(None),
+                    # updated_at + make_interval(mins => cooldown) > NOW()
+                    AccountModel.updated_at + func.make_interval(
+                        0, 0, 0, 0, 0, AccountModel.cooldown
+                    ) > now
+                )
+            )
+
+            # Восстанавливаем значение для работы других частей кода
+            self.status = original_status
+
+        elif self.status__in and (
+            AccountStatus.PAUSED in self.status__in
+            or AccountStatus.AVAILABLE in self.status__in
+        ):
+            # Обработка случая, когда PAUSED или AVAILABLE в списке статусов
+            has_paused = AccountStatus.PAUSED in self.status__in
+            has_available = AccountStatus.AVAILABLE in self.status__in
+            other_statuses = [
+                s for s in self.status__in
+                if s not in (AccountStatus.PAUSED, AccountStatus.AVAILABLE)
+            ]
+
+            # Убираем фильтр по статусу из обработки родительским методом
+            original_status_in = self.status__in
+            self.status__in = None
+
+            # Применяем все остальные фильтры
+            query = super().filter(query)
+
+            # Строим условия
+            conditions = []
+            now = datetime.now(timezone.utc)
+
+            # Добавляем условия для других статусов (не AVAILABLE и не PAUSED)
+            if other_statuses:
+                conditions.append(AccountModel.status.in_(other_statuses))
+
+            # Если запрошен AVAILABLE - добавляем аккаунты НЕ в cooldown
+            if has_available:
+                conditions.append(
+                    and_(
+                        AccountModel.status == AccountStatus.AVAILABLE,
+                        or_(
+                            AccountModel.cooldown.is_(None),
+                            AccountModel.updated_at.is_(None),
+                            AccountModel.updated_at + func.make_interval(
+                                0, 0, 0, 0, 0, AccountModel.cooldown
+                            ) <= now
+                        )
+                    )
+                )
+
+            # Если запрошен PAUSED - добавляем аккаунты В cooldown
+            if has_paused:
+                conditions.append(
+                    and_(
+                        AccountModel.status == AccountStatus.AVAILABLE,
+                        AccountModel.cooldown.isnot(None),
+                        AccountModel.updated_at.isnot(None),
+                        AccountModel.updated_at + func.make_interval(
+                            0, 0, 0, 0, 0, AccountModel.cooldown
+                        ) > now
+                    )
+                )
+
+            if conditions:
+                query = query.where(or_(*conditions))
+
+            # Восстанавливаем значение
+            self.status__in = original_status_in
+
+        else:
+            # Стандартная обработка для всех остальных случаев
+            query = super().filter(query)
+
+        return query
