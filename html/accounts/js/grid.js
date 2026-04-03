@@ -342,12 +342,36 @@ window.initGrid = function() {
                 {
                     field: "file_name",
                     title: "Archive File Name",
-                    filterable: false,
+                    filterable: {
+                        operators: {
+                            string: {
+                                isnull: "Is empty",
+                                isnotnull: "Is not empty"
+                            }
+                        },
+                        cell: {
+                            inputWidth: 0,
+                            showOperators: true,
+                            operator: 'isnull',
+                        },
+                    },
                 },
                 {
                     field: "profile_file_name",
                     title: "Profile File Name",
-                    filterable: false,
+                    filterable: {
+                        operators: {
+                            string: {
+                                isnull: "Is empty",
+                                isnotnull: "Is not empty"
+                            }
+                        },
+                        cell: {
+                            inputWidth: 0,
+                            showOperators: true,
+                            operator: 'isnull',
+                        },
+                    },
                 },
                 {
                     field: "limit",
