@@ -345,14 +345,14 @@ window.initGrid = function() {
                     filterable: {
                         operators: {
                             string: {
-                                isnull: "Is empty",
-                                isnotnull: "Is not empty"
+                                isnotnull: "Is not empty",
+                                isnull: "Is empty"
                             }
                         },
                         cell: {
                             inputWidth: 0,
                             showOperators: true,
-                            operator: 'isnull',
+                            operator: 'isnotnull',
                         },
                     },
                 },
@@ -362,14 +362,14 @@ window.initGrid = function() {
                     filterable: {
                         operators: {
                             string: {
-                                isnull: "Is empty",
-                                isnotnull: "Is not empty"
+                                isnotnull: "Is not empty",
+                                isnull: "Is empty"
                             }
                         },
                         cell: {
                             inputWidth: 0,
                             showOperators: true,
-                            operator: 'isnull',
+                            operator: 'isnotnull',
                         },
                     },
                 },
