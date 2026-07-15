@@ -44,7 +44,7 @@
 from typing import Any
 
 from fastapi import APIRouter, Query, Depends, HTTPException, status
-from fastapi_filter import FilterDepends
+from app.crud.filter.base import FilterDepends
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.logger import logger, E
