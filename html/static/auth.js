@@ -1,6 +1,9 @@
-// window.api_base_url = `${document.location.hostname}:8390`
+if (window.location.href.includes("o3go")) {
+    window.api_base_url = 'https://apistat2.o3go.ru'
+} else {
+    window.api_base_url = `http://${document.location.hostname}:8390`
+}
 
-window.api_base_url = 'https://apistat2.o3go.ru'
 
 window.getToken = function () {
     return JSON.parse(localStorage.getItem('token'));
