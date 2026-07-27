@@ -1,11 +1,14 @@
 from fastapi import APIRouter
 
 from .android import android, options, account as android_account
-from . import message, session, account
+from . import message, session, account, account_report
 
 api_router = APIRouter()
 
 # Универсальный роутер для аккаунтов
+api_router.include_router(
+    account_report.router, prefix='/account', tags=['Account Report']
+)
 api_router.include_router(
     account.router, prefix='/account', tags=['Account']
 )
