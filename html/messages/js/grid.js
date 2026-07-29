@@ -108,6 +108,7 @@ window.initGrid = function() {
                             text: { type: 'string' },
                             status: { type: 'number' },
                             session_id: { type: 'number' },
+                            session__ext_id: { type: 'string' },
                             info_1: {type: 'string'},
                             info_2: {type: 'string'},
                             info_3: {type: 'string'},
@@ -220,9 +221,15 @@ window.initGrid = function() {
                     }
                 },
                 {
-                    field: 'session',
+                    field: 'session__ext_id',
                     title: 'Session (Ext ID)',
-                    filterable: false,
+                    filterable: {
+                        cell: {
+                            inputWidth: 0,
+                            showOperators: true,
+                            operator: 'eq',
+                        },
+                    },
                     template: "#: session.ext_id #"
                 },
                 {
