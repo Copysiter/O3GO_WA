@@ -230,7 +230,7 @@ window.initGrid = function() {
                                     {value: 'session.status', text: 'session.status'},
                                     {value: 'message.create', text: 'message.create'},
                                     {value: 'message.update', text: 'message.update'},
-                                    {value: 'message.status' text: 'message.status'}
+                                    {value: 'message.status', text: 'message.status'}
                                 ],
                                 dataTextField: 'text',
                                 dataValueField: 'value',
