@@ -245,6 +245,12 @@ window.initGrid = function() {
                     title: 'Source',
                     width: '120px',
                     filterable: {
+                        operators: {
+                            string: {
+                                eq: 'Equal to',
+                                neq: 'Not equal to'
+                            },
+                        },
                         ui : function(element) {
                             element.kendoDropDownList({
                                 animation: false,
