@@ -187,6 +187,110 @@ def with_prefix(prefix: str, Filter: type[BaseFilter]) -> type[BaseFilter]:
     return NestedFilter
 
 
+def _build_filter_with_nested_prefixes(
+    Filter: type[BaseFilter], data: dict
+) -> BaseFilter:
+    """
+    Строит экземпляр фильтра с обработкой вложенных префиксов.
+
+    Для параметров вида `session__account__number=value` эта функция:
+    1. Находит поля, соответствующие вложенным фильтрам
+    2. Группирует параметры по префиксам
+    3. Рекурсивно создает вложенные фильтры
+
+    Args:
+        Filter: Класс фильтра для создания
+        data: Словарь с данными фильтра
+
+    Returns:
+        Экземпляр фильтра с правильно обработанными вложенными фильтрами
+    """
+    # Словарь для группировки вложенных параметров
+    nested_params = {}
+    # Словарь для обычных параметров
+    direct_params = {}
+
+    # Проходим по всем параметрам
+    for key, value in data.items():
+        # Проверяем, является ли это вложенным параметром
+        if "__" in key:
+            # Получаем первый префикс
+            prefix, rest = key.split("__", 1)
+
+            # Проверяем, есть ли в фильтре поле с таким именем
+            if prefix in Filter.model_fields:
+                field_info = Filter.model_fields.get(prefix)
+                if field_info:
+                    # Проверяем, является ли поле вложенным фильтром
+                    field_type = field_info.annotation
+                    origin = get_origin(field_type)
+
+                    # Обработка Optional типов (Union с None)
+                    if origin in (Union, UnionType):
+                        args = get_args(field_type)
+                        # Ищем не-None тип
+                        for arg in args:
+                            if arg is not type(None):  # noqa: E721
+                                field_type = arg
+                                origin = get_origin(field_type)
+                                break
+
+                    # Проверяем, является ли тип BaseFilter или его наследником
+                    try:
+                        if (isinstance(field_type, type) and
+                            issubclass(field_type, BaseFilter)):
+                            # Это вложенный фильтр - группируем параметры
+                            if prefix not in nested_params:
+                                nested_params[prefix] = {}
+                            nested_params[prefix][rest] = value
+                            continue
+                    except (TypeError, AttributeError):
+                        # Если не удалось проверить наследование, пропускаем
+                        pass
+
+        # Если не вложенный - добавляем в обычные параметры
+        direct_params[key] = value
+
+    # Создаем вложенные фильтры
+    for field_name, nested_data in nested_params.items():
+        field_info = Filter.model_fields.get(field_name)
+        if field_info:
+            field_type = field_info.annotation
+            origin = get_origin(field_type)
+
+            # Обработка Optional типов
+            if origin in (Union, UnionType):
+                args = get_args(field_type)
+                for arg in args:
+                    if arg is not type(None):  # noqa: E721
+                        field_type = arg
+                        break
+
+            # Рекурсивно создаем вложенный фильтр
+            try:
+                if isinstance(field_type, type) and issubclass(field_type, BaseFilter):
+                    # Проверяем, есть ли у вложенного фильтра original_filter
+                    # (признак того, что он создан через with_prefix)
+                    original_filter = getattr(
+                        field_type.Constants, "original_filter", None
+                    )
+                    if original_filter is not None:
+                        # Если фильтр с префиксом, используем оригинальный
+                        direct_params[field_name] = _build_filter_with_nested_prefixes(
+                            original_filter, nested_data
+                        )
+                    else:
+                        direct_params[field_name] = _build_filter_with_nested_prefixes(
+                            field_type, nested_data
+                        )
+            except (TypeError, AttributeError):
+                # Если не удалось проверить наследование, пропускаем
+                pass
+
+    # Создаем итоговый фильтр
+    return Filter(**direct_params)
+
+
 def _list_to_str_fields(Filter: type[BaseFilter], as_query: bool = False):
     """
     Создаёт копию схемы фильтра, где поля-списки (`list[...]`) заменяются на
@@ -239,6 +343,8 @@ def FilterDepends(
       строки `'a,b,c'` обратно в `list[T]` по аннотациям фильтра.
     - Если фильтр создан через `with_prefix`, снимаем префикс и строит
       `Constants.original_filter`.
+    - Поддерживает рекурсивную обработку вложенных префиксов для фильтров
+      вида `session__account__number`.
     """
     fields = _list_to_str_fields(Filter, as_query=as_query)
     GeneratedFilter: type[BaseFilter] = create_model(
@@ -269,8 +375,9 @@ def FilterDepends(
                     }
                     return original_filter(**stripped)
 
-                # 4). Конструирование исходного фильтра
-                return Filter(**data)
+                # 4). Конструирование исходного фильтра с обработкой
+                #     вложенных префиксных фильтров
+                return _build_filter_with_nested_prefixes(Filter, data)
 
             except ValidationError as e:
                 raise RequestValidationError(e.errors()) from e
