@@ -27,7 +27,6 @@ $(document).ready(function () {
     </a>
     </li>
     <li>
-    <li>
     <a href='/android/' data-role='drawer-item' class='${
         $('body').attr('data-id') == 'android' ? 'k-selected ' : ''
     }d-flex align-items-center text-decoration-none p-0'>
@@ -35,11 +34,20 @@ $(document).ready(function () {
     <span class='k-item-text flex-grow-1 fs-14 ps-0 pe-20 pt-2' data-id='manual'>Android</span>
     </a>
     </li>
+    <li>
     <a href='/users/' data-role='drawer-item' class='${
         $('body').attr('data-id') == 'users' ? 'k-selected ' : ''
     }d-flex align-items-center text-decoration-none p-0' id='reports-icon'>
     <span><i class='mdi mdi-account-circle fs-20'></i></span>
     <span class='k-item-text flex-grow-1 fs-14 ps-0 pe-20' data-id='users'>Users</span>
+    </a>
+    </li>
+    <li>
+    <a href='/logs/' data-role='drawer-item' class='${
+        $('body').attr('data-id') == 'logs' ? 'k-selected ' : ''
+    }d-flex align-items-center text-decoration-none p-0' id='history-icon'>
+    <span><i class='mdi mdi-history fs-20'></i></span>
+    <span class='k-item-text flex-grow-1 fs-14 ps-0 pe-20' data-id='logs'>Logs</span>
     </a>
     </li>
     </ul>`;
@@ -75,6 +83,14 @@ $(document).ready(function () {
     }d-flex align-items-center text-decoration-none p-0'>
     <span><i class='mdi mdi-android fs-24'></i></span>
     <span class='k-item-text flex-grow-1 fs-14 ps-0 pe-20 pt-2' data-id='manual'>Android</span>
+    </a>
+    </li>
+    <li>
+    <a href='/logs/' data-role='drawer-item' class='${
+        $('body').attr('data-id') == 'logs' ? 'k-selected ' : ''
+    }d-flex align-items-center text-decoration-none p-0' id='history-icon'>
+    <span><i class='mdi mdi-history fs-20'></i></span>
+    <span class='k-item-text flex-grow-1 fs-14 ps-0 pe-20' data-id='logs'>Logs</span>
     </a>
     </li>
     </ul>`;

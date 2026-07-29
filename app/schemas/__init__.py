@@ -26,4 +26,7 @@ from .message import (  # noqa
     Message, MessageCreate, MessageUpdate, MessageInDB,  # noqa
     MessageList, MessageFilter, MessageCreateResponse, MessageStatusResponse  # noqa
 )
+from .log import (  # noqa
+    Log, LogCreate, LogUpdate, LogInDB, LogList, LogFilter  # noqa
+)
 from .option import OptionInt, OptionStr, OptionBool  # noqa

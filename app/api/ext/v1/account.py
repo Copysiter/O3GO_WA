@@ -22,6 +22,7 @@ import app.models as models
 import app.deps as deps
 import app.crud as crud
 import app.schemas as schemas
+from app.services.log import log_service
 
 
 UPLOAD_DIR = Path('upload/wa')
@@ -320,8 +321,21 @@ async def upload_archive(
             account = await crud.account.update(
                 db=session,
                 db_obj=existing_account,
-                obj_in=account_data
+                obj_in=account_data,
+                commit=False
             )
+
+            await log_service.record(
+                session,
+                event="account.update",
+                source="ext_api",
+                account_id=account.id,
+                user_id=user.id,
+                status=account.status,
+                commit=False
+            )
+
+            await session.commit()
 
             logger.info(
                 'Account updated successfully',
@@ -393,8 +407,21 @@ async def upload_archive(
             # Создание записи в БД
             account = await crud.account.create(
                 db=session,
-                obj_in=account_data
+                obj_in=account_data,
+                commit=False
             )
+
+            await log_service.record(
+                session,
+                event="account.create",
+                source="ext_api",
+                account_id=account.id,
+                user_id=user.id,
+                status=account.status,
+                commit=False
+            )
+
+            await session.commit()
             
             logger.info(
                 'Account archive uploaded successfully',
@@ -485,6 +512,16 @@ async def get_account(
                 )
             
             account = row[0]
+
+            await log_service.record(
+                session,
+                event="account.status",
+                source="ext_api",
+                account_id=account.id,
+                user_id=user.id,
+                status=account.status,
+                commit=False
+            )
             
             # Формируем URL для скачивания
             base = (

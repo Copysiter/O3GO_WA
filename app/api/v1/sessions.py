@@ -53,6 +53,7 @@ import app.deps as deps
 import app.crud as crud
 import app.models as models
 import app.schemas as schemas
+from app.services.log import log_service
 
 
 router = APIRouter()
@@ -118,7 +119,7 @@ async def create_session(
     *,
     db: AsyncSession = Depends(deps.get_db),
     obj_in: schemas.SessionCreate,
-    _current_user: models.User = Depends(deps.get_current_active_user),
+    current_user: models.User = Depends(deps.get_current_active_user),
 ) -> Any:
     """
     Создаёт новую сессию аккаунта.
@@ -141,7 +142,18 @@ async def create_session(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail='The session with this ext_id already exists'
             )
-        session = await crud.session.create(db=db, obj_in=obj_in)
+        session = await crud.session.create(db=db, obj_in=obj_in, commit=False)
+        await log_service.record(
+            db,
+            event="session.create",
+            source="api",
+            account_id=session.account_id,
+            session_id=session.id,
+            user_id=current_user.id,
+            status=session.status,
+            commit=False
+        )
+        await db.commit()
         return session
     except Exception as e:
         logger.exception(
@@ -158,7 +170,7 @@ async def update_session(
     db: AsyncSession = Depends(deps.get_db),
     id: int,
     obj_in: schemas.SessionUpdate,
-    _current_user: models.User = Depends(deps.get_current_active_user),
+    current_user: models.User = Depends(deps.get_current_active_user),
 ) -> Any:
     """
     Обновляет данные сессии аккаунта по идентификатору.
@@ -181,7 +193,23 @@ async def update_session(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail='The session with this ID does not exist'
             )
-        db_obj = await crud.session.update(db=db, db_obj=session, obj_in=obj_in)
+        event = "session.status" if "status" in obj_in.model_dump(
+            exclude_unset=True
+        ) else "session.update"
+        db_obj = await crud.session.update(
+            db=db, db_obj=session, obj_in=obj_in, commit=False
+        )
+        await log_service.record(
+            db,
+            event=event,
+            source="api",
+            account_id=db_obj.account_id,
+            session_id=db_obj.id,
+            user_id=current_user.id,
+            status=db_obj.status,
+            commit=False
+        )
+        await db.commit()
         return db_obj
     except Exception as e:
         logger.exception(

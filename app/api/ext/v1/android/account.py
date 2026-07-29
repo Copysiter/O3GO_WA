@@ -24,6 +24,7 @@ import app.deps as deps
 import app.crud as crud
 import app.models as models
 import app.schemas as schemas
+from app.services.log import log_service
 
 from app.models.session import AccountStatus, SessionStatus
 
@@ -90,7 +91,18 @@ async def _unlink_with_status(
                     )
                     .returning(models.Account)
                 )
-                _ = (await session.execute(statement)).first()
+                row = (await session.execute(statement)).first()
+                if row is not None:
+                    account = row[0]
+                    await log_service.record(
+                        session,
+                        event="account.status",
+                        source="app_api",
+                        account_id=account.id,
+                        user_id=user.id,
+                        status=account.status,
+                        commit=False
+                    )
 
             return {'code': '0'}
 
@@ -128,6 +140,7 @@ async def link_account(
             if android is None:
                 return {'code': '100', 'error': 'Device not found'}
             account = android.account
+            log_account_status = False
             if not account or account.status != AccountStatus.ACTIVE:
                 A = aliased(models.Account)
 
@@ -167,9 +180,21 @@ async def link_account(
                 if row is None:
                     return {'code': '100', 'error': 'Account not found'}
                 account = row[0]
+                log_account_status = True
 
             android.account_id = account.id
             await session.flush()
+
+            if log_account_status:
+                await log_service.record(
+                    session,
+                    event="account.status",
+                    source="app_api",
+                    account_id=account.id,
+                    user_id=user.id,
+                    status=account.status,
+                    commit=False
+                )
 
             base = (
                 request.headers.get("x-base-url") or str(request.base_url)
@@ -265,11 +290,22 @@ async def upload_archive(
         result = {"code": 1, "error": f"Failed to save file: {e}"}
 
     # Добавление записи в БД
-    await crud.account.create(
+    account = await crud.account.create(
         db=db, obj_in=schemas.AccountCreate(
             uuid=str(uuid.uuid4()), user_id=user.id, file_name=file_name
-        ).model_dump(exclude_unset=False)
+        ).model_dump(exclude_unset=False),
+        commit=False
     )
+    await log_service.record(
+        db,
+        event="account.create",
+        source="app_api",
+        account_id=account.id,
+        user_id=user.id,
+        status=account.status,
+        commit=False
+    )
+    await db.commit()
 
     return JSONResponse(result)
 

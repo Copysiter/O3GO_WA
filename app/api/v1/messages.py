@@ -44,7 +44,7 @@
 from typing import Any
 
 from fastapi import APIRouter, Query, Depends, HTTPException, status
-from fastapi_filter import FilterDepends
+from app.crud.filter.base import FilterDepends
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.logger import logger, E
@@ -53,6 +53,7 @@ import app.deps as deps
 import app.crud as crud
 import app.models as models
 import app.schemas as schemas
+from app.services.log import log_service
 
 
 router = APIRouter()
@@ -123,7 +124,7 @@ async def create_message(
     *,
     db: AsyncSession = Depends(deps.get_db),
     obj_in: schemas.MessageCreate,
-    _current_user: models.User = Depends(deps.get_current_active_user),
+    current_user: models.User = Depends(deps.get_current_active_user),
 ) -> Any:
     """
     Создаёт новое сообщение.
@@ -140,7 +141,25 @@ async def create_message(
         Созданный объект `schemas.Message` (HTTP 201).
     """
     try:
-        message = await crud.message.create(db=db, obj_in=obj_in)
+        account_session = await crud.session.get(db=db, id=obj_in.session_id)
+        if not account_session:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail='The session with this ID does not exist'
+            )
+        message = await crud.message.create(db=db, obj_in=obj_in, commit=False)
+        await log_service.record(
+            db,
+            event="message.create",
+            source="api",
+            account_id=account_session.account_id,
+            session_id=account_session.id,
+            message_id=message.id,
+            user_id=current_user.id,
+            status=message.status,
+            commit=False
+        )
+        await db.commit()
         return message
     except Exception as e:
         logger.exception(
@@ -157,7 +176,7 @@ async def update_message(
     db: AsyncSession = Depends(deps.get_db),
     id: int,
     obj_in: schemas.MessageUpdate,
-    _current_user: models.User = Depends(deps.get_current_active_user),
+    current_user: models.User = Depends(deps.get_current_active_user),
 ) -> Any:
     """
     Обновляет данные сообщения по идентификатору.
@@ -180,7 +199,25 @@ async def update_message(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail='The message with this ID does not exist'
             )
-        db_obj = await crud.message.update(db=db, db_obj=obj_in, obj_in=obj_in)
+        account_session = await crud.session.get(db=db, id=db_obj.session_id)
+        event = "message.status" if "status" in obj_in.model_dump(
+            exclude_unset=True
+        ) else "message.update"
+        db_obj = await crud.message.update(
+            db=db, db_obj=db_obj, obj_in=obj_in, commit=False
+        )
+        await log_service.record(
+            db,
+            event=event,
+            source="api",
+            account_id=account_session.account_id,
+            session_id=account_session.id,
+            message_id=db_obj.id,
+            user_id=current_user.id,
+            status=db_obj.status,
+            commit=False
+        )
+        await db.commit()
         return db_obj
     except Exception as e:
         logger.exception(

@@ -2,7 +2,7 @@ from fastapi import APIRouter
 
 from . import (
     base, auth, users, androids, versions,
-    accounts, sessions, messages, options
+    accounts, sessions, messages, logs, options
 )
 
 
@@ -31,6 +31,9 @@ api_router.include_router(
 )
 api_router.include_router(
     messages.router, prefix='/messages', tags=['Messages']
+)
+api_router.include_router(
+    logs.router, prefix='/logs', tags=['Logs']
 )
 api_router.include_router(
     options.router, prefix='/options', tags=['Options']

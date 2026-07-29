@@ -63,6 +63,7 @@ import app.deps as deps
 import app.crud as crud
 import app.models as models
 import app.schemas as schemas
+from app.services.log import log_service
 
 
 UPLOAD_DIR = Path('upload/wa')
@@ -244,8 +245,23 @@ async def create_account(
             for file_name in obj_in.files
         ]
         accounts = await crud.account.insert(
-            db=db, obj_list=obj_list, returning=True
+            db=db, obj_list=obj_list, returning=True, commit=False
         )
+        await log_service.records(
+            db,
+            items=[
+                schemas.LogCreate(
+                    event="account.create",
+                    source="api",
+                    account_id=account.id,
+                    user_id=current_user.id,
+                    status=account.status
+                )
+                for account in accounts
+            ],
+            commit=False
+        )
+        await db.commit()
         return {"count": len(accounts)}
     except Exception as e:
         logger.exception(
@@ -262,7 +278,7 @@ async def update_account(
     db: AsyncSession = Depends(deps.get_db),
     id: int,
     obj_in: schemas.AccountUpdate,
-    _current_user: models.User = Depends(deps.get_current_active_user),
+    current_user: models.User = Depends(deps.get_current_active_user),
 ) -> Any:
     """
     Обновляет данные аккаунта по идентификатору.
@@ -285,9 +301,22 @@ async def update_account(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail='The account with this ID does not exist'
             )
+        event = "account.status" if "status" in obj_in.model_dump(
+            exclude_unset=True
+        ) else "account.update"
         account = await crud.account.update(
-            db=db, db_obj=db_obj, obj_in=obj_in
+            db=db, db_obj=db_obj, obj_in=obj_in, commit=False
         )
+        await log_service.record(
+            db,
+            event=event,
+            source="api",
+            account_id=account.id,
+            user_id=current_user.id,
+            status=account.status,
+            commit=False
+        )
+        await db.commit()
         return account
     except Exception as e:
         logger.exception(

@@ -8,6 +8,7 @@ from app.core.logger import logger, E
 
 import app.deps as deps
 import app.crud as crud, app.models as models, app.schemas as schemas
+from app.services.log import log_service
 
 from app.models.message import MessageStatus
 from app.utils.geo import get_geo_by_number
@@ -61,7 +62,10 @@ async def create_message(
             )
 
         await crud.session.update(
-            db, id=session.id, obj_in={'msg_count': column('msg_count') + 1}
+            db,
+            id=session.id,
+            obj_in={'msg_count': column('msg_count') + 1},
+            commit=False
         )
 
         obj_in = schemas.MessageCreate(
@@ -75,7 +79,19 @@ async def create_message(
             info_3=info_3
         )
 
-        message = await crud.message.create(db=db, obj_in=obj_in)
+        message = await crud.message.create(db=db, obj_in=obj_in, commit=False)
+        await log_service.record(
+            db,
+            event="message.create",
+            source="ext_api",
+            account_id=session.account_id,
+            session_id=session.id,
+            message_id=message.id,
+            user_id=user.id,
+            status=message.status,
+            commit=False
+        )
+        await db.commit()
 
         return schemas.MessageCreateResponse(id=message.id)
     except Exception as e:
@@ -118,6 +134,7 @@ async def update_message_status(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=f"Message with id={id} not found",
             )
+        account_id = message.session.account_id
         new_status = getattr(
             MessageStatus, status.upper(), message.status
         )
@@ -126,8 +143,20 @@ async def update_message_status(
             if locals()[info] is not None:
                 setattr(obj_in, info, locals()[info])
         message = await crud.message.update(
-            db, db_obj=message, obj_in=obj_in
+            db, db_obj=message, obj_in=obj_in, commit=False
         )
+        await log_service.record(
+            db,
+            event="message.status",
+            source="ext_api",
+            account_id=account_id,
+            session_id=message.session_id,
+            message_id=message.id,
+            user_id=user.id,
+            status=message.status,
+            commit=False
+        )
+        await db.commit()
 
         return schemas.MessageStatusResponse(
             id=message.id,

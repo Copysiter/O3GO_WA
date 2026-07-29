@@ -5,8 +5,10 @@ from app.core.logger import logger, E
 from app.deps import get_db
 from app.models.session import SessionStatus
 from app.schemas.session import SessionUpdate
+from app.schemas.log import LogCreate
 from app.crud.session import session
 from app.jobs import registry
+from app.services.log import log_service
 
 
 @registry.job(
@@ -19,16 +21,32 @@ async def close_inactive_sessions():
         threshold_time = datetime.utcnow() - timedelta(hours=24)
 
         async for db in get_db():
-            updated_count = await session.update(
+            updated_sessions = await session.update(
                 db=db,
                 obj_in=SessionUpdate(status=SessionStatus.FINISHED),
                 filter={
                     "status__in": [SessionStatus.ACTIVE],
                     "updated_at__lte": threshold_time
                 },
-                commit=True,
-                returning="count"
+                commit=False,
+                returning="object"
             )
+            await log_service.records(
+                db,
+                items=[
+                    LogCreate(
+                        event="session.status",
+                        source="scheduler",
+                        account_id=item.account_id,
+                        session_id=item.id,
+                        status=item.status
+                    )
+                    for item in updated_sessions
+                ],
+                commit=False
+            )
+            await db.commit()
+            updated_count = len(updated_sessions)
 
         logger.info(
             f"Закрыто сессий: {updated_count}",

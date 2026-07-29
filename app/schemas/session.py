@@ -72,7 +72,7 @@ class SessionList(BaseModel):
     total: int = 0
 
 
-class SessionFilter(Filter):
+class SessionFilterBase(Filter):
     """Фильтр поиска сессии аккаунтов по различным полям модели"""
     id: int | None = None
     id__neq: int | None = None
@@ -147,29 +147,35 @@ class SessionFilter(Filter):
     info_8__ilike: str | None = None
 
     # Вложенный фильтр по аккаунту
-    account: AccountFilter | None = FilterDepends(
-        with_prefix("account", AccountFilter)
-    )
+    account: AccountFilter | None = None
 
     order_by: Optional[list[str]] = None
 
-    # def filter(self, query: Select) -> Select:
-    #     account_filter = getattr(self, "account", None)
-    #     if account_filter is not None and dict(
-    #         account_filter.filtering_fields
-    #     ):
-    #         query = query.join(SessionModel.account)
-    #     return super().filter(query)
-
     def filter(self, query: Select) -> Select:
+        """
+        Переопределенный метод filter для поддержки JOIN с Account.
+
+        JOIN добавляется только если есть реальные фильтры по полям account.
+        """
         account_filter = getattr(self, "account", None)
-        if account_filter is not None:
+        if account_filter is not None and dict(account_filter.filtering_fields):
             query = query.join(SessionModel.account)
         return super().filter(query)
 
     class Constants(Filter.Constants):
         model = SessionModel
         ordering_field_name = "order_by"
+
+
+# Создаем префиксный AccountFilter для использования в SessionFilter
+_AccountFilterWithPrefix = with_prefix("account", AccountFilter)
+
+# Класс фильтра для использования в API с вложенными фильтрами
+class SessionFilter(SessionFilterBase):
+    """Фильтр для API с поддержкой вложенных фильтров через префиксы"""
+
+    # Переопределяем поле account с поддержкой префиксов
+    account: _AccountFilterWithPrefix | None = None
 
 
 class SessionStatusResponse(BaseModel):

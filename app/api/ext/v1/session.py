@@ -7,6 +7,7 @@ from app.core.logger import logger, E
 
 import app.deps as deps
 import app.crud as crud, app.models as models, app.schemas as schemas
+from app.services.log import log_service
 from app.models.session import AccountStatus, SessionStatus
 
 
@@ -18,7 +19,7 @@ async def _update_session_status(
     id: int | None = None,
     ext_id: str | None = None,
     *,
-    user_id: str,
+    user_id: int,
     number: str,
     info_1: str | None = None,
     info_2: str | None = None,
@@ -95,6 +96,29 @@ async def _update_session_status(
         db, db_obj=account, obj_in=account_obj_in, commit=False
     )
 
+    await log_service.records(
+        db,
+        items=[
+            schemas.LogCreate(
+                event="session.status",
+                source="ext_api",
+                account_id=account.id,
+                session_id=session.id,
+                user_id=user_id,
+                status=session.status
+            ),
+            schemas.LogCreate(
+                event="account.status",
+                source="ext_api",
+                account_id=account.id,
+                session_id=session.id,
+                user_id=user_id,
+                status=account.status
+            )
+        ],
+        commit=False
+    )
+
     await db.commit()
 
     return schemas.SessionStatusResponse(
@@ -162,6 +186,7 @@ async def start_session(
             db, number=number, user_id=user.id
         )
         if account:
+            account_event = "account.status"
             # Формируем obj_in только с не-None значениями
             obj_in = schemas.AccountUpdate(status=AccountStatus.ACTIVE)
             for info in [
@@ -176,7 +201,7 @@ async def start_session(
                 db, db_obj=account, obj_in=obj_in, commit=False
             )
 
-            await crud.session.update(
+            closed_sessions = await crud.session.update(
                 db,
                 obj_in=schemas.SessionUpdate(status=SessionStatus.FINISHED),
                 filter={
@@ -186,6 +211,7 @@ async def start_session(
                 commit=False
             )
         else:
+            account_event = "account.create"
             # Формируем obj_in_create только с не-None значениями
             obj_in = schemas.AccountCreate(
                 number=number,
@@ -201,6 +227,7 @@ async def start_session(
                     setattr(obj_in, info, locals()[info])
 
             account = await crud.account.create(db=db, obj_in=obj_in, commit=False)
+            closed_sessions = []
 
         # Создаём новую сессию
         obj_in = schemas.SessionCreate(
@@ -217,6 +244,37 @@ async def start_session(
                 setattr(obj_in, info, locals()[info])
 
         session = await crud.session.create(db=db, obj_in=obj_in, commit=False)
+
+        log_items = [
+            schemas.LogCreate(
+                event=account_event,
+                source="ext_api",
+                account_id=account.id,
+                session_id=session.id,
+                user_id=user.id,
+                status=account.status
+            ),
+            schemas.LogCreate(
+                event="session.create",
+                source="ext_api",
+                account_id=account.id,
+                session_id=session.id,
+                user_id=user.id,
+                status=session.status
+            )
+        ]
+        log_items.extend(
+            schemas.LogCreate(
+                event="session.status",
+                source="ext_api",
+                account_id=closed_session.account_id,
+                session_id=closed_session.id,
+                user_id=user.id,
+                status=closed_session.status
+            )
+            for closed_session in closed_sessions
+        )
+        await log_service.records(db, items=log_items, commit=False)
 
         await db.commit()
 
