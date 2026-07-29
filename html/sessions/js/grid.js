@@ -199,16 +199,16 @@ window.initGrid = function() {
                     filterable: true,
                 },
                 {
-                    field: 'account',
+                    field: 'account__number',
                     title: 'Account',
-                    filterable: false,
-                    // filterable: {
-                    //     cell: {
-                    //         inputWidth: 0,
-                    //         showOperators: true,
-                    //         operator: 'eq',
-                    //     },
-                    // },
+                    sortable: false,
+                    filterable: {
+                        cell: {
+                            inputWidth: 0,
+                            showOperators: true,
+                            operator: 'eq',
+                        },
+                    },
                     template: "#: account.number #"
                 },
                 {
@@ -269,8 +269,7 @@ window.initGrid = function() {
                                 dataSource: [
                                     {value: -1, text: "BANNED"},
                                     {value: 0, text: "FINISHED"},
-                                    {value: 1, text: "ACTIVE"},
-                                    {value: 2, text: "PAUSED"}
+                                    {value: 1, text: "ACTIVE"}
                                 ],
                                 dataTextField: "text",
                                 dataValueField: "value",

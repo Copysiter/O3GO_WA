@@ -1,15 +1,10 @@
 from typing import Optional, List
 from datetime import datetime, timezone
 
-from sqlalchemy import Select
-from sqlalchemy.orm import selectinload
 from pydantic import BaseModel, Field, ConfigDict
 
-from app.crud.filter.base import FilterDepends, with_prefix
 from app.crud.filter.sqlalchemy import Filter
 from app.models.message import Message as MessageModel, MessageStatus
-from app.models.session import Session as SessionModel
-from app.models.account import Account as AccountModel
 from app.schemas.session import Session
 from app.schemas.session import SessionFilter
 
@@ -25,7 +20,7 @@ class MessageBase(BaseModel):
         None, description="Тест сообщения"
     )
     status: Optional[int] = Field(None, description="Статус сообщения")
-    created_at: Optional[datetime] =  Field(
+    created_at: Optional[datetime] = Field(
         default_factory=lambda: datetime.now(timezone.utc),
         description="Дата создания сообщения"
     )
@@ -167,53 +162,15 @@ class MessageFilterBase(Filter):
 
     order_by: list[str] | None = None
 
-    def filter(self, query: Select) -> Select:
-        """
-        Переопределенный метод filter для поддержки цепочки JOIN-ов.
-
-        Обрабатывает фильтрацию через связи:
-        - Message → Session (прямой JOIN)
-        - Message → Session → Account (двойной JOIN для session.account фильтров)
-
-        JOIN добавляется только если есть реальные фильтры по соответствующим полям.
-        """
-        session_filter = getattr(self, "session", None)
-
-        if session_filter is not None:
-            # Проверяем, есть ли фильтрация по полям session
-            has_session_filters = bool(dict(session_filter.filtering_fields))
-
-            # Проверяем, есть ли фильтрация по полям account через session
-            account_filter = getattr(session_filter, "account", None)
-            has_account_filters = (
-                account_filter is not None
-                and bool(dict(account_filter.filtering_fields))
-            )
-
-            if has_session_filters or has_account_filters:
-                # JOIN с таблицей Session
-                query = query.join(MessageModel.session)
-
-                # Если есть фильтры по Account, добавляем второй JOIN
-                if has_account_filters:
-                    query = query.join(SessionModel.account)
-
-        return super().filter(query)
-
     class Constants(Filter.Constants):
         model = MessageModel
         ordering_field_name = "order_by"
 
 
-# Создаем префиксный SessionFilter для использования в MessageFilter
-_SessionFilterWithPrefix = with_prefix("session", SessionFilter)
-
 # Класс фильтра для использования в API с вложенными фильтрами
 class MessageFilter(MessageFilterBase):
     """Фильтр для API с поддержкой вложенных фильтров через префиксы"""
-
-    # Переопределяем поле session с поддержкой префиксов
-    session: _SessionFilterWithPrefix | None = None
+    pass
 
 
 class MessageCreateResponse(BaseModel):

@@ -1,10 +1,8 @@
 from typing import Optional, List
 from datetime import datetime, timezone
 
-from sqlalchemy import Select
 from pydantic import BaseModel, Field, ConfigDict
 
-from app.crud.filter.base import FilterDepends, with_prefix
 from app.crud.filter.sqlalchemy import Filter
 from app.models.session import Session as SessionModel, AccountStatus
 from app.schemas.account import Account, AccountFilter
@@ -151,31 +149,15 @@ class SessionFilterBase(Filter):
 
     order_by: Optional[list[str]] = None
 
-    def filter(self, query: Select) -> Select:
-        """
-        Переопределенный метод filter для поддержки JOIN с Account.
-
-        JOIN добавляется только если есть реальные фильтры по полям account.
-        """
-        account_filter = getattr(self, "account", None)
-        if account_filter is not None and dict(account_filter.filtering_fields):
-            query = query.join(SessionModel.account)
-        return super().filter(query)
-
     class Constants(Filter.Constants):
         model = SessionModel
         ordering_field_name = "order_by"
 
 
-# Создаем префиксный AccountFilter для использования в SessionFilter
-_AccountFilterWithPrefix = with_prefix("account", AccountFilter)
-
 # Класс фильтра для использования в API с вложенными фильтрами
 class SessionFilter(SessionFilterBase):
     """Фильтр для API с поддержкой вложенных фильтров через префиксы"""
-
-    # Переопределяем поле account с поддержкой префиксов
-    account: _AccountFilterWithPrefix | None = None
+    pass
 
 
 class SessionStatusResponse(BaseModel):

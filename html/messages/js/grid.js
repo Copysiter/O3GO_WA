@@ -207,10 +207,17 @@ window.initGrid = function() {
                     },
                 },
                 {
-                    field: 'account',
+                    field: 'session__account__number',
                     title: 'Account',
-                    filterable: false,
-                    template: "#: session.account.number #"
+                    template: "#: session.account.number #",
+                    sortable: false,
+                    filterable: {
+                        cell: {
+                            inputWidth: 0,
+                            showOperators: true,
+                            operator: 'eq',
+                        },
+                    }
                 },
                 {
                     field: 'session',

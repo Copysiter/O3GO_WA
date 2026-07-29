@@ -6,17 +6,37 @@
 - добавляет предикаты к `Select` через `.where(...)`;
 - применяет сортировку через `.order_by(...)`;
 - поддерживает «классические» операторы (`gt`, `in`, `lte`, `ilike`, и т.д.);
-- добавляет PG JSONB-операторы: `contains` (`@>`), `any` (`?|`), `all` (`?&`);
+- добавляет PG JSONB/ARRAY-операторы: `contains`, `any`, `all`;
 - умеет выполнять «поиск» по нескольким полям (`search`).
 """
 
 from enum import Enum
 from typing import Callable, Dict
 from pydantic import ValidationInfo, field_validator
-from sqlalchemy import or_, cast, ARRAY, String
+from sqlalchemy import and_, or_, cast, ARRAY, String, select
 from sqlalchemy.sql import Select
 
 from app.crud.filter.base import BaseFilter
+
+
+def _contains_all(field, value):
+    """JSONB/ARRAY contains: поле содержит все переданные значения."""
+    value = value if isinstance(value, (dict, list)) else [value]
+    return field.contains(value)
+
+
+def _contains_any(field, value):
+    """JSONB ?| или ARRAY overlap: поле содержит любой из элементов."""
+    if hasattr(field, "overlap"):
+        return field.overlap(value)
+    return field.op('?|')(cast(value, ARRAY(String)))
+
+
+def _has_all(field, value):
+    """JSONB ?& или ARRAY contains: поле содержит все элементы."""
+    if hasattr(field, "overlap"):
+        return _contains_all(field, value)
+    return field.op('?&')(cast(value, ARRAY(String)))
 
 
 # Реестр операторов: name -> (field, value) -> SQLAlchemy выражение
@@ -39,16 +59,14 @@ OP_HANDLERS: Dict[str, Callable] = {
     "like": lambda f, v: getattr(f, "like")(v if "%" in v else f"%{v}%"),
     "ilike": lambda f, v: getattr(f, "ilike")(v if "%" in v else f"%{v}%"),
 
-    # JSONB массив содержит элемент
-    "contains": lambda f, v: f.contains(
-        v if isinstance(v, (dict, list)) else [v]
-    ),
+    # JSONB/ARRAY содержит все указанные значения
+    "contains": _contains_all,
 
-    # JSONB массив содержит хотя бы один из списка
-    "any": lambda f, v: f.op('?|')(cast(v, ARRAY(String))),
+    # JSONB/ARRAY содержит хотя бы один из списка
+    "any": _contains_any,
 
-    # JSONB массив Содержит все из списка
-    "all": lambda f, v: f.op('?&')(cast(v, ARRAY(String))),
+    # JSONB/ARRAY содержит все значения из списка
+    "all": _has_all,
 }
 
 # Суффиксы, ожидающие список (строка из query, разделённая запятыми)
@@ -108,7 +126,28 @@ class Filter(BaseFilter):
 
             # 1). Обработка вложенного фильтра (with_prefix)
             if isinstance(field_value, BaseFilter):
-                query = field_value.filter(query)  # type: ignore[attr-defined]
+                relationship_field = getattr(
+                    self.Constants.model, raw_name, None
+                )
+                relationship_property = getattr(
+                    relationship_field, "property", None
+                )
+                if relationship_property is None:
+                    raise ValueError(
+                        f"Unsupported relationship filter: {raw_name}"
+                    )
+
+                nested_model = field_value.Constants.model
+                nested_query = field_value.filter(select(nested_model.id))
+                criteria = list(nested_query._where_criteria)  # noqa
+                if not criteria:
+                    continue
+
+                criterion = and_(*criteria)
+                if relationship_property.uselist:
+                    query = query.where(relationship_field.any(criterion))
+                else:
+                    query = query.where(relationship_field.has(criterion))
                 continue
 
             # 2). Разбор имени поля и оператора

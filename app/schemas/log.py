@@ -2,9 +2,7 @@ from typing import Any, List
 from datetime import datetime, timezone
 
 from pydantic import BaseModel, ConfigDict, Field
-from sqlalchemy.sql import Select
 
-from app.crud.filter.base import with_prefix
 from app.crud.filter.sqlalchemy import Filter
 from app.models.log import Log as LogModel
 from app.schemas.account import Account, AccountFilter
@@ -65,7 +63,7 @@ class LogList(BaseModel):
     total: int = 0
 
 
-class LogFilterBase(Filter):
+class LogFilter(Filter):
     """Фильтр поиска записей событий."""
     id: int | None = None
     id__neq: int | None = None
@@ -113,20 +111,6 @@ class LogFilterBase(Filter):
 
     order_by: list[str] | None = None
 
-    def filter(self, query: Select) -> Select:
-        account_filter = getattr(self, "account", None)
-        if account_filter is not None and dict(account_filter.filtering_fields):
-            query = query.join(LogModel.account)
-        return super().filter(query)
-
     class Constants(Filter.Constants):
         model = LogModel
         ordering_field_name = "order_by"
-
-
-_AccountFilterWithPrefix = with_prefix("account", AccountFilter)
-
-
-class LogFilter(LogFilterBase):
-    """Фильтр для API с поддержкой фильтрации по аккаунту."""
-    account: _AccountFilterWithPrefix | None = None
