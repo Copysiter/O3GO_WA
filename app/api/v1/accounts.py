@@ -41,6 +41,7 @@
 - По дате создания:       `GET /accounts?created_at__gte=2025-09-01T00:00:00Z`
 """
 
+import asyncio
 import uuid, shutil  # noqa
 
 from typing import Any, List, Dict
@@ -74,6 +75,32 @@ PROFILE_UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
 
 router = APIRouter()
+
+
+def _account_file_exists(directory: Path, file_name: str | None) -> bool:
+    """Проверяет наличие настроенного файла аккаунта."""
+    if not file_name:
+        return False
+
+    base_path = directory.resolve()
+    file_path = (base_path / file_name).resolve()
+    try:
+        file_path.relative_to(base_path)
+    except ValueError:
+        return False
+    return file_path.is_file()
+
+
+def _delivery_summary(
+    delivered: int,
+    terminal: int
+) -> schemas.AccountReportDelivery:
+    """Формирует процент доставки по финальным статусам сообщений."""
+    return schemas.AccountReportDelivery(
+        delivered=delivered,
+        terminal=terminal,
+        rate=round(delivered / terminal * 100, 2) if terminal else None
+    )
 
 
 def delete_account_files(account: models.Account) -> Dict[str, Any]:
@@ -195,7 +222,7 @@ async def read_accounts(
                 and item.status == AccountStatus.AVAILABLE
             ) else item, data
         ))
-        
+
         return {'data': data, 'total': count}
     except Exception as e:
         logger.exception(
@@ -325,6 +352,100 @@ async def update_account(
             }
         )
         raise e
+
+
+@router.get('/{id}/summary', response_model=schemas.AccountReportSummary)
+async def read_account_summary(
+    *,
+    db: AsyncSession = Depends(deps.get_db),
+    id: int,
+    current_user: models.User = Depends(deps.get_current_active_user),
+) -> schemas.AccountReportSummary:
+    """Возвращает Overview и агрегаты детальной страницы аккаунта."""
+    try:
+        result = await crud.account.get_report_summary(
+            db,
+            account_id=id,
+            owner_user_id=(
+                None if current_user.is_superuser else current_user.id
+            )
+        )
+        if result is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail='The account with this ID does not exist'
+            )
+
+        account, stats = result
+        now = datetime.now(timezone.utc)
+        account_status = int(account.status)
+        cooldown_until = None
+        if account.cooldown is not None and account.updated_at is not None:
+            cooldown_until = account.updated_at + timedelta(
+                minutes=account.cooldown
+            )
+            if (
+                account_status == AccountStatus.AVAILABLE
+                and cooldown_until > now
+            ):
+                account_status = int(AccountStatus.PAUSED)
+
+        archive_exists, profile_exists = await asyncio.gather(
+            asyncio.to_thread(
+                _account_file_exists, UPLOAD_DIR, account.file_name
+            ),
+            asyncio.to_thread(
+                _account_file_exists,
+                PROFILE_UPLOAD_DIR,
+                account.profile_file_name
+            )
+        )
+
+        return schemas.AccountReportSummary(
+            account=schemas.AccountReportOverview(
+                id=account.id,
+                uuid=uuid.UUID(str(account.uuid)) if account.uuid else None,
+                number=account.number,
+                status=account_status,
+                cooldown=account.cooldown,
+                cooldown_until=cooldown_until,
+                owner=schemas.AccountReportOwner(
+                    id=account.user.id,
+                    name=account.user.name
+                ),
+                archive=schemas.AccountReportFile(
+                    name=account.file_name,
+                    exists=archive_exists
+                ),
+                profile=schemas.AccountReportFile(
+                    name=account.profile_file_name,
+                    exists=profile_exists
+                )
+            ),
+            session_count=int(stats["session_count"] or 0),
+            current_session_id=stats["current_session_id"],
+            message_count_current=int(stats["message_count_current"] or 0),
+            message_count_total=int(stats["message_count_total"] or 0),
+            delivery_current=_delivery_summary(
+                int(stats["delivery_current_delivered"] or 0),
+                int(stats["delivery_current_terminal"] or 0)
+            ),
+            delivery_all_time=_delivery_summary(
+                int(stats["delivery_all_delivered"] or 0),
+                int(stats["delivery_all_terminal"] or 0)
+            )
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception(
+            event=E.SYSTEM.API.ERROR,
+            extra={
+                "error": {"type": type(e).__name__, "msg": str(e)},
+                "account_id": id
+            }
+        )
+        raise
 
 
 @router.get('/{id}', response_model=schemas.Account)

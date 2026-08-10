@@ -6,7 +6,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from app.crud.filter.sqlalchemy import Filter
 from app.models.log import Log as LogModel
 from app.schemas.account import Account, AccountFilter
-from app.schemas.user import User
+from app.schemas.user import UserReference
 
 
 class LogBase(BaseModel):
@@ -49,7 +49,7 @@ class LogInDBBase(LogBase):
 class Log(LogInDBBase):
     """Схема записи события, возвращаемая из API."""
     account: Account | None = None
-    user: User | None = None
+    user: UserReference | None = None
 
 
 class LogInDB(LogInDBBase):

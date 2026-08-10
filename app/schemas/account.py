@@ -1,6 +1,6 @@
 from uuid import UUID
 from typing import List
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timezone
 
 from pydantic import BaseModel, Field, ConfigDict
 from sqlalchemy import and_, or_, func
@@ -8,7 +8,7 @@ from sqlalchemy.sql import Select
 
 from app.crud.filter.sqlalchemy import Filter
 from app.models.account import Account as AccountModel, AccountStatus
-from app.schemas.user import User
+from app.schemas.user import User, UserReference
 
 
 class AccountBase(BaseModel):
@@ -40,7 +40,7 @@ class AccountBase(BaseModel):
         None, description="Исходное название архива"
     )
     status: int | None = Field(None, description="Статус аккаунта")
-    created_at: datetime | None =  Field(
+    created_at: datetime | None = Field(
         default_factory=lambda: datetime.now(timezone.utc),
         description="Дата добавления аккаунта"
     )
@@ -114,12 +114,23 @@ class AccountInDBBase(AccountBase):
 
 class Account(AccountInDBBase):
     """Схема аккаунта, возвращаемая из API"""
+    user: UserReference
+    download_url: str | None = Field(
+        None, description="URL для скачивания архива"
+    )
+    profile_download_url: str | None = Field(
+        None, description="URL для скачивания файла профиля"
+    )
+
+
+class AccountExternal(AccountInDBBase):
+    """Контракт внешнего API с полными данными владельца."""
     user: User
     download_url: str | None = Field(
         None, description="URL для скачивания архива"
     )
     profile_download_url: str | None = Field(
-        None,description="URL для скачивания файла профиля"
+        None, description="URL для скачивания файла профиля"
     )
 
 
@@ -132,6 +143,49 @@ class AccountList(BaseModel):
     """Схема списка аккаунтов с общим количеством записей"""
     data: List[Account]
     total: int = 0
+
+
+class AccountReportOwner(BaseModel):
+    """Владелец аккаунта в детальном отчёте."""
+    id: int
+    name: str
+
+
+class AccountReportFile(BaseModel):
+    """Состояние файла аккаунта на локальной файловой системе."""
+    name: str | None = None
+    exists: bool = False
+
+
+class AccountReportOverview(BaseModel):
+    """Текущие данные аккаунта для вкладки Overview."""
+    id: int
+    uuid: UUID | None = None
+    number: str | None = None
+    status: int
+    cooldown: int | None = None
+    cooldown_until: datetime | None = None
+    owner: AccountReportOwner
+    archive: AccountReportFile
+    profile: AccountReportFile
+
+
+class AccountReportDelivery(BaseModel):
+    """Итоговые статусы доставки в выбранном срезе."""
+    delivered: int = 0
+    terminal: int = 0
+    rate: float | None = None
+
+
+class AccountReportSummary(BaseModel):
+    """Сводка детальной страницы одного аккаунта."""
+    account: AccountReportOverview
+    session_count: int = 0
+    current_session_id: int | None = None
+    message_count_current: int = 0
+    message_count_total: int = 0
+    delivery_current: AccountReportDelivery
+    delivery_all_time: AccountReportDelivery
 
 
 class AccountIds(BaseModel):

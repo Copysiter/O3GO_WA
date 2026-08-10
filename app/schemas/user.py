@@ -52,6 +52,16 @@ class User(UserInDBBase):
     pass
 
 
+class UserReference(BaseModel):
+    """Безопасное представление пользователя во вложенных ответах."""
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    name: str
+    login: str | None = None
+    is_active: bool | None = None
+    is_superuser: bool | None = None
+
+
 # Additional properties stored in DB
 class UserInDB(UserInDBBase):
     """Схема пользователя, используемая только внутри приложения"""

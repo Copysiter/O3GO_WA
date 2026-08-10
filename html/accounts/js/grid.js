@@ -270,6 +270,28 @@ window.initGrid = function() {
                 {
                     command: [
                         {
+                            name: 'detail',
+                            text: '',
+                            iconClass: 'k-icon k-i-eye',
+                            click: function (e) {
+                                e.preventDefault();
+                                const dataItem = this.dataItem(
+                                    $(e.currentTarget).closest('tr')
+                                );
+                                const accountId = Number(
+                                    dataItem && dataItem.id
+                                );
+                                if (
+                                    Number.isSafeInteger(accountId)
+                                    && accountId > 0
+                                ) {
+                                    window.location.assign(
+                                        `/accounts/${accountId}`
+                                    );
+                                }
+                            },
+                        },
+                        {
                             name: 'edit',
                             iconClass: {
                                 edit: 'k-icon k-i-edit',

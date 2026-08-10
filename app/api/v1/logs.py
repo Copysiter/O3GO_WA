@@ -30,7 +30,10 @@ async def read_logs(
         if not getattr(f, "order_by", None):
             f.order_by = ["-id"]
         if not current_user.is_superuser:
-            f.user_id = current_user.id
+            if f.account is None:
+                f.account = schemas.AccountFilter(user_id=current_user.id)
+            else:
+                f.account.user_id = current_user.id
         data = await crud.log.list(db, filter=f, skip=skip, limit=limit)
         count = await crud.log.count(db, filter=f)
         return {'data': data, 'total': count}

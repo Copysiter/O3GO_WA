@@ -135,7 +135,7 @@ def _build_account_filter_conditions(filter_obj, model_alias, user_id):
 
 @router.post(
     '/upload',
-    response_model=schemas.Account,
+    response_model=schemas.AccountExternal,
     status_code=status.HTTP_201_CREATED
 )
 async def upload_archive(
@@ -350,7 +350,7 @@ async def upload_archive(
                 }
             )
 
-            return schemas.Account.model_validate(account)
+            return schemas.AccountExternal.model_validate(account)
 
         # Режим создания: если аккаунт не найден
         else:
@@ -434,7 +434,7 @@ async def upload_archive(
                 }
             )
             
-            return schemas.Account.model_validate(account)
+            return schemas.AccountExternal.model_validate(account)
         
     except Exception as e:
         logger.exception(
@@ -448,7 +448,7 @@ async def upload_archive(
 
 @router.get(
     '/',
-    response_model=schemas.Account,
+    response_model=schemas.AccountExternal,
     status_code=status.HTTP_200_OK
 )
 async def get_account(
@@ -537,7 +537,9 @@ async def get_account(
             )
             
             # Конвертируем ORM объект в схему Account с download_url
-            account_dict = schemas.Account.model_validate(account).model_dump()
+            account_dict = schemas.AccountExternal.model_validate(
+                account
+            ).model_dump()
             if account.file_name:
                 account_dict['download_url'] = download_url
             if account.profile_file_name:
@@ -553,7 +555,7 @@ async def get_account(
                 }
             )
             
-            return schemas.Account(**account_dict)
+            return schemas.AccountExternal(**account_dict)
             
     except HTTPException:
         raise

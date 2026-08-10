@@ -167,7 +167,7 @@ $(document).ready(function () {
                     overflow: 'never',
                 },
                 {
-                    template: '<div id="logo"><img src="../static/images/logo.svg" height=14 /></div>',
+                    template: '<div id="logo"><img src="/static/images/logo.svg" height=14 /></div>',
                     overflow: 'never',
                 },
                 { type: 'spacer' },
