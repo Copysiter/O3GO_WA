@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html prefix="og: http://ogp.me/ns#" lang="en">
+    <head>
+        <title>O3GO WA — Account Log Report</title>
+        <meta charset="UTF-8" />
+        <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <link rel="icon" type="image/x-icon" href="/static/favicon.ico" />
+        <link href="/static/lib/bootstrap/css/bootstrap.css" rel="stylesheet" />
+        <link href="/static/lib/kendo/css/base.css" rel="stylesheet" />
+        <link href="/static/lib/kendo/css/kendo.r2.css" rel="stylesheet" />
+        <link href="/static/lib/material/style.css" rel="stylesheet" />
+        <link href="/static/lib/silk/famfamfam-silk.min.css" rel="stylesheet" />
+        <script src="/static/lib/jquery.min.js"></script>
+        <script src="/static/lib/kendo/js/kendo.all.min.js"></script>
+        <script src="/static/lib/kendo/js/jszip.min.js"></script>
+        <link href="/static/style.css" rel="stylesheet" />
+        <link href="/accounts/detail/css/style.css" rel="stylesheet" />
+        <script src="/static/auth.js"></script>
+        <script src="/static/script.js"></script>
+    </head>
+    <body class="d-flex flex-column" data-id="accounts">
+        <div id="appbar"></div>
+        <div class="flex-grow-1" id="app-root">
+            <div id="drawer">
+                <div id="content" class="position-relative d-flex flex-column p-8">
+                    <div id="report-toolbar"></div>
+                    <div class="position-relative flex-grow-1">
+                        <main id="report-wrapper" class="report-wrapper position-absolute h-100 w-100 d-flex flex-column" aria-live="polite">
+                            <div id="report-error" class="alert alert-danger d-none" role="alert"></div>
+
+                            <section id="metric-cards" class="metric-grid" aria-label="Account report metrics"></section>
+
+                            <div id="report-tabs" class="report-tabs">
+                                <ul>
+                                    <li>Overview</li>
+                                    <li>Sessions</li>
+                                    <li>Messages</li>
+                                    <li>Logs</li>
+                                </ul>
+
+                                <div class="tab-panel">
+                                    <article class="report-panel">
+                                        <div class="panel-heading">
+                                            <h2>Current account state</h2>
+                                            <span class="panel-source">account table</span>
+                                        </div>
+                                        <div id="account-state"></div>
+                                    </article>
+                                </div>
+
+                                <div class="tab-panel grid-panel">
+                                    <div class="tab-intro">
+                                        Stored session rows with related message counts.
+                                    </div>
+                                    <div class="position-relative report-grid-wrapper">
+                                        <div id="sessions-grid" class="report-grid position-absolute h-100 w-100 d-flex flex-column"></div>
+                                    </div>
+                                </div>
+
+                                <div class="tab-panel grid-panel">
+                                    <div class="tab-intro">
+                                        Current messages from all sessions of this account.
+                                    </div>
+                                    <div class="position-relative report-grid-wrapper">
+                                        <div id="messages-grid" class="report-grid position-absolute h-100 w-100 d-flex flex-column"></div>
+                                    </div>
+                                </div>
+
+                                <div class="tab-panel grid-panel">
+                                    <div class="tab-intro">
+                                        Events are ordered by <code>id</code> descending.
+                                        Double-click a row to inspect it.
+                                    </div>
+                                    <div class="position-relative report-grid-wrapper">
+                                        <div id="events-grid" class="report-grid position-absolute h-100 w-100 d-flex flex-column"></div>
+                                    </div>
+                                </div>
+                            </div>
+                        </main>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div id="event-details"></div>
+        <div id="confirm-logout"></div>
+
+        <script src="/accounts/detail/js/report.js"></script>
+        <script type="text/javascript">
+            $(function () {
+                try {
+                    var token = window.isAuth || {};
+                    window.access_token = token.access_token;
+                    window.token_type = token.token_type;
+                    window.initAccountLogReport();
+                } catch (error) {
+                    $('#report-error')
+                        .removeClass('d-none')
+                        .text('Unable to initialize report: ' + error.message);
+                    console.error(error);
+                }
+            });
+        </script>
+    </body>
+</html>

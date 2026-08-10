@@ -286,7 +286,7 @@ window.initGrid = function() {
                                     && accountId > 0
                                 ) {
                                     window.location.assign(
-                                        `/accounts/${accountId}`
+                                        `/accounts/detail/${accountId}`
                                     );
                                 }
                             },
