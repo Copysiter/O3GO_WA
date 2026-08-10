@@ -44,10 +44,10 @@
 from typing import Any
 
 from fastapi import APIRouter, Query, Depends, HTTPException, status
-from app.crud.filter.base import FilterDepends
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.logger import logger, E
+from app.crud.filter.base import FilterDepends
 
 import app.deps as deps
 import app.crud as crud
@@ -62,7 +62,9 @@ router = APIRouter()
 @router.get('/', response_model=schemas.SessionList)
 async def read_sessions(
     db: AsyncSession = Depends(deps.get_db),
-    f: schemas.SessionFilter = FilterDepends(schemas.SessionFilter),
+    f: schemas.SessionFilter = FilterDepends(
+        schemas.SessionFilter, as_query=True
+    ),
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=1000),
     current_user: models.User = Depends(deps.get_current_active_user)

@@ -57,8 +57,8 @@ from fastapi.responses import JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.logger import logger, E
+from app.crud.filter.base import FilterDepends
 from app.models.account import AccountStatus
-from app.crud.filter import FilterDepends
 
 import app.deps as deps
 import app.crud as crud
@@ -176,7 +176,9 @@ def delete_account_files(account: models.Account) -> Dict[str, Any]:
 @router.get('/', response_model=schemas.AccountList)
 async def read_accounts(
     db: AsyncSession = Depends(deps.get_db),
-    f: schemas.AccountFilter = FilterDepends(schemas.AccountFilter),
+    f: schemas.AccountFilter = FilterDepends(
+        schemas.AccountFilter, as_query=True
+    ),
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=1000),
     current_user: models.User = Depends(deps.get_current_active_user)

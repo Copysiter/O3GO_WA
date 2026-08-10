@@ -29,7 +29,9 @@ router = APIRouter()
 @router.get('/', response_model=schemas.VersionRows)
 async def read_androids(
     db: AsyncSession = Depends(deps.get_db),
-    f: schemas.VersionFilter = FilterDepends(schemas.VersionFilter),
+    f: schemas.VersionFilter = FilterDepends(
+        schemas.VersionFilter, as_query=True
+    ),
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=1000),
     _current_user: models.User = Depends(deps.get_current_active_user),

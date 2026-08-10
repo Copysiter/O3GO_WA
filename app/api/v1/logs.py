@@ -20,7 +20,9 @@ router = APIRouter()
 @router.get('/', response_model=schemas.LogList)
 async def read_logs(
     db: AsyncSession = Depends(deps.get_db),
-    f: schemas.LogFilter = FilterDepends(schemas.LogFilter),
+    f: schemas.LogFilter = FilterDepends(
+        schemas.LogFilter, as_query=True
+    ),
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=1000),
     current_user: models.User = Depends(deps.get_current_active_user),

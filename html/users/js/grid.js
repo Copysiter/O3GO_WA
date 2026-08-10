@@ -81,11 +81,10 @@ $(document).ready(function () {
                         if (data.hasOwnProperty('pageSize')) {
                             delete data.pageSize;
                         }
-                        if (data.hasOwnProperty('filter') && data.filter) {
-                            data.filter = data.filter.filters;
+                        if (type === 'read') {
+                            const params = window.kendoToFastapiQuery(data);
+                            return Object.fromEntries(params);
                         }
-
-                        if (type === 'read') return data;
                         return kendo.stringify(data);
                     },
                 },
@@ -121,7 +120,7 @@ $(document).ready(function () {
                             // balance: { type: 'number', editable: true },
                             // balance_lock: { type: 'number', editable: true },
                             is_active: { type: 'boolean', editable: true },
-                            is_superuser: { editable: true },
+                            is_superuser: { type: 'boolean', editable: true },
                             actions: { type: 'object', editable: false },
                         },
                     },
@@ -187,22 +186,13 @@ $(document).ready(function () {
                 extra: false,
                 operators: {
                     string: {
+                        contains: 'Contains',
                         eq: 'Equal to',
                         neq: 'Not equal to',
-                        startswith: 'Starts with',
-                        endswith: 'Ends with',
-                        contains: 'Contains',
-                        doesnotcontain: 'Does not contain',
-                        isnullorempty: 'Has no value',
-                        isnotnullorempty: 'Has value',
                     },
                     number: {
                         eq: 'Equal to',
                         neq: 'Not equal to',
-                        gt: 'Greater than',
-                        gte: 'Greater than or equal to',
-                        lt: 'Less than',
-                        lte: 'Less than or equal to',
                     },
                 },
             },
@@ -280,7 +270,7 @@ $(document).ready(function () {
                                 ],
                                 dataTextField: 'text',
                                 dataValueField: 'value',
-                                valuePrimitive: false,
+                                valuePrimitive: true,
                                 optionLabel: '-- Select Role --',
                             });
                         },

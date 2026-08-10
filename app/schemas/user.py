@@ -85,12 +85,16 @@ class UserFilter(Filter):
     id__lt: int | None = None
 
     name: str | None = None
+    name__neq: str | None = None
     name__in: list[str] | None = None
     name__like: str | None = None
+    name__ilike: str | None = None
 
     login: str | None = None
+    login__neq: str | None = None
     login__in: list[str] | None = None
     login__like: str | None = None
+    login__ilike: str | None = None
 
     x_api_key: str | None = None
     x_api_key__in: list[str] | None = None
@@ -98,6 +102,7 @@ class UserFilter(Filter):
 
     is_active: bool | None = None
     is_superuser: bool | None = None
+    is_superuser__neq: bool | None = None
 
     order_by: Optional[list[str]] = None
 

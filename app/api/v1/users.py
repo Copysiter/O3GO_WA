@@ -46,10 +46,10 @@ from typing import Any, Annotated
 
 from fastapi import APIRouter, Body, Depends, Query, HTTPException, status
 from fastapi.encoders import jsonable_encoder
-from fastapi_filter import FilterDepends
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.logger import logger, E
+from app.crud.filter.base import FilterDepends
 
 import app.deps as deps
 import app.crud as crud
@@ -63,7 +63,9 @@ router = APIRouter()
 @router.get('/', response_model=schemas.UserList)
 async def read_users(
     db: AsyncSession = Depends(deps.get_db),
-    f: schemas.UserFilter = FilterDepends(schemas.UserFilter),
+    f: schemas.UserFilter = FilterDepends(
+        schemas.UserFilter, as_query=True
+    ),
     skip: Annotated[int, Query(description='Page offset', ge=0)] = 0,
     limit: Annotated[int, Query(description='Page size', ge=1)] = 100,
     _current_user: models.User = Depends(deps.get_current_active_superuser)
