@@ -34,7 +34,7 @@
 
     function getAccountId() {
         var pathMatch = window.location.pathname.match(
-            /^\/accounts\/detail\/([0-9]+)\/?$/
+            /^\/accounts\/([0-9]+)\/?$/
         );
         if (pathMatch) return Number(pathMatch[1]);
 
@@ -519,10 +519,7 @@
         if (!Number.isSafeInteger(accountId) || accountId < 1) {
             $('#report-error')
                 .removeClass('d-none')
-                .text(
-                    'A valid account ID is required in ' +
-                    '/accounts/detail/<account_id>.'
-                );
+                .text('A valid account ID is required in /accounts/<account_id>.');
             return;
         }
 
