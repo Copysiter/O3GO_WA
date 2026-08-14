@@ -2,7 +2,7 @@ from uuid import UUID
 from typing import List
 from datetime import datetime, timezone
 
-from pydantic import BaseModel, Field, ConfigDict
+from pydantic import BaseModel, Field, ConfigDict, model_validator
 from sqlalchemy import and_, or_, func
 from sqlalchemy.sql import Select
 
@@ -62,6 +62,7 @@ class AccountBase(BaseModel):
 class AccountUpload(BaseModel):
     """Базовая схема аккаунта с общими полями"""
     number: str = Field(description="Номер аккаунта")
+    hash: str | None = Field(None, description="Hash аккаунта")
     type: int | None = Field(
         None, description="Тип аккаунта (1 - WhatsApp, 2 - WhatsApp бизнес)"
     )
@@ -132,6 +133,39 @@ class AccountExternal(AccountInDBBase):
     profile_download_url: str | None = Field(
         None, description="URL для скачивания файла профиля"
     )
+
+
+class AccountExternalWithHash(AccountExternal):
+    """Контракт выдачи аккаунта внешнему клиенту."""
+    hash: str | None = Field(None, description="Hash аккаунта")
+
+
+class AccountHashUpdate(BaseModel):
+    """Схема установки или очистки hash аккаунта."""
+    hash: str | None = Field(description="Новое значение hash аккаунта")
+
+
+class AccountHashLookupUpdate(AccountHashUpdate):
+    """Схема изменения hash с поиском аккаунта по ID или номеру."""
+    id: int | None = Field(None, description="ID аккаунта")
+    number: str | None = Field(None, description="Номер аккаунта")
+
+    @model_validator(mode="after")
+    def validate_locator(self) -> "AccountHashLookupUpdate":
+        """Требует ровно один идентификатор аккаунта."""
+        if (self.id is None) == (self.number is None):
+            raise ValueError("Exactly one of id or number must be provided")
+        return self
+
+
+class AccountHashUpdateResponse(BaseModel):
+    """Результат установки или очистки hash аккаунта."""
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    number: str | None
+    hash: str | None
+    status: int
 
 
 class AccountInDB(AccountInDBBase):

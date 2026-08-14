@@ -1,10 +1,10 @@
-from typing import Any
+from typing import Any, Sequence
 
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.crud.base import CRUDBase
-from app.models.account import Account
+from app.models.account import Account, AccountStatus
 from app.models.message import Message, MessageStatus
 from app.models.session import Session, SessionStatus
 from app.schemas.account import AccountCreate, AccountUpdate, AccountFilter
@@ -17,6 +17,38 @@ class AccountCRUD(
 
     def __init__(self) -> None:
         super().__init__(model=Account, filter_class=AccountFilter)
+
+    async def get_owned_by_id(
+        self,
+        db: AsyncSession,
+        *,
+        account_id: int,
+        user_id: int
+    ) -> Account | None:
+        """Возвращает аккаунт владельца по ID."""
+        stmt = select(Account).where(
+            Account.id == account_id,
+            Account.user_id == user_id
+        )
+        result = await db.execute(stmt)
+        return result.scalar_one_or_none()
+
+    async def list_owned_by_number(
+        self,
+        db: AsyncSession,
+        *,
+        number: str,
+        user_id: int
+    ) -> Sequence[Account]:
+        """Возвращает не более двух аккаунтов владельца с данным номером."""
+        stmt = (
+            select(Account)
+            .where(Account.number == number, Account.user_id == user_id)
+            .order_by(Account.id.asc())
+            .limit(2)
+        )
+        result = await db.execute(stmt)
+        return result.scalars().all()
 
     async def get_report_summary(
         self,
@@ -84,6 +116,38 @@ class AccountCRUD(
         )
         stats_result = await db.execute(stats_stmt)
         return account, dict(stats_result.one()._mapping)
+
+    async def update_hash(
+        self,
+        db: AsyncSession,
+        *,
+        account_id: int,
+        user_id: int,
+        value: str | None,
+        commit: bool = False
+    ) -> Account | None:
+        """Изменяет hash и освобождает аккаунт без смены updated_at."""
+        stmt = (
+            update(Account)
+            .where(
+                Account.id == account_id,
+                Account.user_id == user_id
+            )
+            .values(
+                hash=value,
+                status=AccountStatus.AVAILABLE,
+                updated_at=Account.updated_at
+            )
+            .returning(Account)
+            .execution_options(populate_existing=True)
+        )
+        result = await db.execute(stmt)
+        account = result.scalar_one_or_none()
+
+        if account is not None and commit:
+            await db.commit()
+
+        return account
 
 
 account = AccountCRUD()

@@ -73,7 +73,12 @@ def _bool_badge(value: Any) -> str:
 
 
 def _columns(model: type) -> list[str]:
-    return [column.name for column in model.__table__.columns]
+    excluded = {'hash'} if model is models.Account else set()
+    return [
+        column.name
+        for column in model.__table__.columns
+        if column.name not in excluded
+    ]
 
 
 def _status_map_for(model: type) -> dict[int, str] | None:

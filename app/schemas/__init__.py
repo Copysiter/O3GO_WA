@@ -15,8 +15,10 @@ from .version import (
     VersionFilter  # noqa
 )  # noqa
 from .account import (  #  # noqa
-    Account, AccountExternal, AccountUpload, AccountCreate,  # noqa
-    AccountMultiCreate, AccountUpdate,  # noqa
+    Account, AccountExternal, AccountExternalWithHash, AccountUpload,  # noqa
+    AccountCreate, AccountMultiCreate, AccountUpdate,  # noqa
+    AccountHashUpdate, AccountHashLookupUpdate,  # noqa
+    AccountHashUpdateResponse,  # noqa
     AccountInDB, AccountList, AccountIds, AccountFilter,  # noqa
     AccountReportDelivery, AccountReportFile, AccountReportOverview,  # noqa
     AccountReportOwner, AccountReportSummary  # noqa

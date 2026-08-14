@@ -24,9 +24,9 @@ window.kendoToFastapiQuery = function(state) {
     startswith: '__istartswith',
     endswith: '__iendswith',
     gt: '__gt',
-    gte: '__ge',
+    gte: '__gte',
     lt: '__lt',
-    lte: '__le',
+    lte: '__lte',
     in: '__in',
     isnull: '__isnull',
     isnotnull: '__isnull', // со значением false
@@ -45,11 +45,13 @@ window.kendoToFastapiQuery = function(state) {
     }
 
     const suffix = opMap[operator] ?? '';
-    if (operator === 'in' && Array.isArray(value)) {
-      params.append(`${field}${suffix}`, value.join(','));
-    } else {
-      params.append(`${field}${suffix}`, String(value));
-    }
+    const serializeValue = value => value instanceof Date
+      ? value.toISOString()
+      : String(value);
+    const serializedValue = operator === 'in' && Array.isArray(value)
+      ? value.map(serializeValue).join(',')
+      : serializeValue(value);
+    params.append(`${field}${suffix}`, serializedValue);
   }
 
   function walk(node, logic = 'and') {

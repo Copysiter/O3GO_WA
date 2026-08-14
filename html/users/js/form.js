@@ -1,6 +1,17 @@
 function showEditForm(model) {
-    let token = window.isAuth;
-    let { access_token, token_type } = token;
+    const roleOptions = {
+        dataSource: [
+            { text: 'User', value: false },
+            { text: 'Admin', value: true },
+        ],
+        dataTextField: 'text',
+        dataValueField: 'value',
+        valuePrimitive: true,
+        downArrow: true,
+        animation: false,
+        autoClose: false,
+    };
+
     return $('#form-edit-users').kendoForm({
         orientation: 'vertical',
         formData: model,
@@ -17,43 +28,13 @@ function showEditForm(model) {
                 field: 'is_superuser',
                 label: 'Role',
                 colSpan: 6,
-                editor: 'DropDownList',
-                editorOptions: {
-                    dataSource: new kendo.data.DataSource({
-                        /*
-                        schema: {
-                            model: {
-                                fields: {
-                                    text: { type: "string" },
-                                    value: { type: "boolean" }
-                                }
-                            }
-                        },
-                        */
-                        data: [
-                            { text: 'User', value: false },
-                            { text: 'Admin', value: true },
-                        ],
-                    }),
-                    select: function (e) {},
-                    dataTextField: 'text',
-                    dataValueField: 'value',
-                    valuePrimitive: true,
-                    downArrow: true,
-                    animation: false,
-                    autoClose: false,
-                    validation: { required: true },
-                    dataBound: function (e) {
-                        $('#users-grid')
-                            .data('kendoGrid')
-                            .autoFitColumn('is_superuser');
-                    },
-                    change: function (e) {
-                        $('#users-grid')
-                            .data('kendoGrid')
-                            .autoFitColumn('is_superuser');
-                    },
+                editor: function (container, options) {
+                    $('<input name="' + options.field + '" ' +
+                        'data-bind="value:' + options.field + '" />')
+                        .appendTo(container)
+                        .kendoDropDownList(roleOptions);
                 },
+                validation: { required: true },
             },
             {
                 field: 'sep1',

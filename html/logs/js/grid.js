@@ -34,6 +34,115 @@ window.initGrid = function() {
             return `<span class='log-context'>${kendo.htmlEncode(JSON.stringify(item.context))}</span>`;
         }
 
+        function removeFieldFilters(filter, field) {
+            if (!filter) return null;
+            if (!Array.isArray(filter.filters)) {
+                return filter.field === field ? null : filter;
+            }
+
+            const filters = filter.filters
+                .map(function(item) {
+                    return removeFieldFilters(item, field);
+                })
+                .filter(Boolean);
+
+            if (!filters.length) return null;
+            return {
+                logic: filter.logic || 'and',
+                filters: filters,
+            };
+        }
+
+        function getDateRange(filter, field) {
+            const range = { start: null, end: null };
+
+            function walk(item) {
+                if (!item) return;
+                if (Array.isArray(item.filters)) {
+                    item.filters.forEach(walk);
+                    return;
+                }
+                if (item.field !== field || !item.value) return;
+
+                const value = item.value instanceof Date
+                    ? item.value
+                    : new Date(item.value);
+                if (Number.isNaN(value.getTime())) return;
+
+                if (item.operator === 'gte') range.start = value;
+                if (item.operator === 'lte') range.end = value;
+            }
+
+            walk(filter);
+            return range;
+        }
+
+        function applyDateRange(dataSource, field, range) {
+            let filter = removeFieldFilters(dataSource.filter(), field);
+            const dateFilters = [];
+
+            if (range.start) {
+                const start = range.start;
+                dateFilters.push({
+                    field: field,
+                    operator: 'gte',
+                    value: new Date(
+                        start.getFullYear(), start.getMonth(), start.getDate()
+                    ),
+                });
+            }
+            if (range.end) {
+                const end = range.end;
+                dateFilters.push({
+                    field: field,
+                    operator: 'lte',
+                    value: new Date(
+                        end.getFullYear(), end.getMonth(), end.getDate(),
+                        23, 59, 59, 999
+                    ),
+                });
+            }
+
+            if (dateFilters.length) {
+                const dateFilter = { logic: 'and', filters: dateFilters };
+                filter = filter
+                    ? { logic: 'and', filters: [filter, dateFilter] }
+                    : dateFilter;
+            }
+
+            dataSource.filter(filter || {});
+        }
+
+        function getPickerDate(input, picker) {
+            const value = kendo.parseDate(
+                input.val(), ['dd.MM.yyyy']
+            ) || picker.value();
+            if (value) picker.value(value);
+            return value;
+        }
+
+        function getSelectedDateRange(inputs, pickers) {
+            return {
+                start: getPickerDate(inputs.start, pickers.start),
+                end: getPickerDate(inputs.end, pickers.end),
+            };
+        }
+
+        function syncDateRangePickers(grid, pickers) {
+            const range = getDateRange(
+                grid.dataSource.filter(), 'created_at'
+            );
+            pickers.start.value(range.start);
+            pickers.end.value(range.end);
+        }
+
+        function closeFilterMenu(container) {
+            const popup = container
+                .closest('[data-role="popup"]')
+                .data('kendoPopup');
+            if (popup) popup.close();
+        }
+
         const user_column = window.isAuth.user.is_superuser ? [{
             field: 'user_id',
             width: '100px',
@@ -169,6 +278,79 @@ window.initGrid = function() {
                     },
                 },
             },
+            filterMenuInit: function(e) {
+                if (e.field !== 'created_at') return;
+
+                const grid = e.sender;
+                const filter = $(
+                    '<div class="k-filter-menu-container log-date-range-filter"></div>'
+                );
+                $(
+                    '<span class="k-filter-help-text">Show items in date range:</span>'
+                ).appendTo(filter);
+                const pickerContainer = $(
+                    '<div class="log-date-range-picker"></div>'
+                ).appendTo(filter);
+                const startInput = $(
+                    '<input class="log-date-from" placeholder="Date from" />'
+                ).appendTo(pickerContainer);
+                const endInput = $(
+                    '<input class="log-date-to" placeholder="Date to" />'
+                ).appendTo(pickerContainer);
+                const actions = $(
+                    '<div class="k-action-buttons k-actions-horizontal k-actions-stretched"></div>'
+                ).appendTo(filter);
+                const filterButton = $(
+                    '<button type="button" class="k-button k-button-md k-rounded-md k-button-solid k-button-solid-primary"><span class="k-button-text">Filter</span></button>'
+                ).appendTo(actions);
+                const clearButton = $(
+                    '<button type="button" class="k-button k-button-md k-rounded-md k-button-solid k-button-solid-base"><span class="k-button-text">Clear</span></button>'
+                ).appendTo(actions);
+
+                e.container.empty().append(filter);
+                const datePickerOptions = {
+                    format: 'dd.MM.yyyy',
+                    parseFormats: ['dd.MM.yyyy'],
+                    dateInput: false,
+                };
+                startInput.kendoDatePicker(datePickerOptions);
+                endInput.kendoDatePicker(datePickerOptions);
+
+                const inputs = { start: startInput, end: endInput };
+                const pickers = {
+                    start: startInput.data('kendoDatePicker'),
+                    end: endInput.data('kendoDatePicker'),
+                };
+                e.container.data('logDateRangePickers', pickers);
+                syncDateRangePickers(grid, pickers);
+
+                filterButton.on('click', function() {
+                    applyDateRange(
+                        grid.dataSource,
+                        e.field,
+                        getSelectedDateRange(inputs, pickers)
+                    );
+                    closeFilterMenu(e.container);
+                });
+
+                clearButton.on('click', function() {
+                    pickers.start.value(null);
+                    pickers.end.value(null);
+                    applyDateRange(grid.dataSource, e.field, {
+                        start: null,
+                        end: null,
+                    });
+                    closeFilterMenu(e.container);
+                });
+
+                filterButton.attr('title', 'Apply date range');
+            },
+            filterMenuOpen: function(e) {
+                if (e.field === 'created_at') {
+                    const pickers = e.container.data('logDateRangePickers');
+                    if (pickers) syncDateRangePickers(e.sender, pickers);
+                }
+            },
             pageable: {
                 refresh: true,
                 pageSizes: [100, 250, 500],
@@ -191,7 +373,7 @@ window.initGrid = function() {
                     field: 'created_at',
                     title: 'Created',
                     width: '160px',
-                    filterable: false,
+                    filterable: true,
                     format: '{0: yyyy-MM-dd HH:mm:ss}',
                 },
                 {

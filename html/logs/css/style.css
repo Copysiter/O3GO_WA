@@ -6,3 +6,18 @@
     white-space: nowrap;
     font-family: monospace;
 }
+
+.log-date-range-filter {
+    width: 230px;
+}
+
+.log-date-range-picker {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    width: 100%;
+}
+
+.log-date-range-picker .k-datepicker {
+    width: 100%;
+}

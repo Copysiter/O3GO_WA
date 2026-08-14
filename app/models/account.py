@@ -33,6 +33,7 @@ class Account(Base):
         nullable=False, index=True
     )
     number: Mapped[str] = mapped_column(String(64), nullable=True, index=True)
+    hash: Mapped[str | None] = mapped_column(String, nullable=True)
     type: Mapped[int] = mapped_column(
         SmallInteger, nullable=False, default=1, index=True
     )

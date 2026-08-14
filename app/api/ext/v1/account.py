@@ -61,7 +61,13 @@ def _build_account_filter_conditions(filter_obj, model_alias, user_id):
         )
     )
 
-    # file_name фильтр (IS NULL / IS NOT NULL)
+    # Аккаунт должен иметь архив или hash для внешнего клиента.
+    conditions.append(or_(
+        model_alias.file_name.is_not(None),
+        model_alias.hash.is_not(None)
+    ))
+
+    # Явный file_name фильтр дополняет обязательное условие доступности.
     if filter_obj.file_name__isnull is not None:
         if filter_obj.file_name__isnull:
             conditions.append(model_alias.file_name.is_(None))
@@ -131,6 +137,87 @@ def _build_account_filter_conditions(filter_obj, model_alias, user_id):
             )
     
     return conditions
+
+
+def _apply_upload_hash(
+    account_data: dict[str, Any], obj_in: schemas.AccountUpload
+) -> None:
+    """Добавляет только явно переданный непустой hash загрузки."""
+    if 'hash' in obj_in.model_fields_set and obj_in.hash:
+        account_data['hash'] = obj_in.hash
+
+
+def _account_not_found() -> HTTPException:
+    return HTTPException(
+        status_code=status.HTTP_404_NOT_FOUND,
+        detail='Account not found'
+    )
+
+
+async def _find_owned_account(
+    session: AsyncSession,
+    *,
+    user_id: int,
+    account_id: int | None = None,
+    number: str | None = None
+) -> models.Account:
+    """Находит единственный аккаунт владельца по ID или номеру."""
+    if account_id is not None:
+        account = await crud.account.get_owned_by_id(
+            session, account_id=account_id, user_id=user_id
+        )
+        if account is None:
+            raise _account_not_found()
+        return account
+
+    matches = await crud.account.list_owned_by_number(
+        session, number=number, user_id=user_id
+    )
+    if not matches:
+        raise _account_not_found()
+    if len(matches) > 1:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail='Multiple accounts found for number'
+        )
+    return matches[0]
+
+
+async def _set_account_hash(
+    session: AsyncSession,
+    *,
+    account: models.Account,
+    user_id: int,
+    value: str | None
+) -> models.Account:
+    """Изменяет hash, освобождает аккаунт и сохраняет аудит."""
+    updated_account = await crud.account.update_hash(
+        session,
+        account_id=account.id,
+        user_id=user_id,
+        value=value,
+        commit=False
+    )
+    if updated_account is None:
+        raise _account_not_found()
+
+    await log_service.record(
+        session,
+        event='account.update',
+        source='ext_api',
+        account_id=updated_account.id,
+        user_id=user_id,
+        status=updated_account.status,
+        commit=False
+    )
+    await session.commit()
+
+    logger.info(
+        'Account hash updated successfully',
+        event=E.SYSTEM.API.RESPONSE,
+        extra={'user_id': user_id, 'account_id': updated_account.id}
+    )
+    return updated_account
 
 
 @router.post(
@@ -316,6 +403,7 @@ async def upload_archive(
                 'info_7': obj_in.info_7,
                 'info_8': obj_in.info_8
             }
+            _apply_upload_hash(account_data, obj_in)
 
             # Обновление записи в БД
             account = await crud.account.update(
@@ -396,7 +484,10 @@ async def upload_archive(
                     await f.write(content)
             
             # Обновляем данные для создания записи
-            account_data = obj_in.model_dump(exclude_unset=True)
+            account_data = obj_in.model_dump(
+                exclude_unset=True, exclude={'hash'}
+            )
+            _apply_upload_hash(account_data, obj_in)
             account_data.update({
                 'uuid': uuid.uuid4(),
                 'user_id': user.id,
@@ -446,9 +537,88 @@ async def upload_archive(
         raise e
 
 
+@router.post(
+    '/hash',
+    response_model=schemas.AccountHashUpdateResponse,
+    status_code=status.HTTP_200_OK
+)
+async def update_account_hash_by_locator(
+    *,
+    obj_in: schemas.AccountHashLookupUpdate,
+    session: AsyncSession = Depends(deps.get_db),
+    user=Depends(deps.get_user_by_api_key)
+) -> schemas.AccountHashUpdateResponse:
+    """Устанавливает или очищает hash аккаунта владельца по ID или номеру."""
+    try:
+        account = await _find_owned_account(
+            session,
+            user_id=user.id,
+            account_id=obj_in.id,
+            number=obj_in.number
+        )
+        updated_account = await _set_account_hash(
+            session, account=account, user_id=user.id, value=obj_in.hash
+        )
+        return schemas.AccountHashUpdateResponse.model_validate(
+            updated_account
+        )
+    except HTTPException:
+        raise
+    except Exception as exc:
+        await session.rollback()
+        logger.exception(
+            event=E.SYSTEM.API.ERROR,
+            extra={
+                'user_id': user.id,
+                'account_id': obj_in.id,
+                'number': obj_in.number,
+                'error': {'type': type(exc).__name__, 'msg': str(exc)}
+            }
+        )
+        raise
+
+
+@router.post(
+    '/{id}/hash',
+    response_model=schemas.AccountHashUpdateResponse,
+    status_code=status.HTTP_200_OK
+)
+async def update_account_hash_by_id(
+    *,
+    id: int,
+    obj_in: schemas.AccountHashUpdate,
+    session: AsyncSession = Depends(deps.get_db),
+    user=Depends(deps.get_user_by_api_key)
+) -> schemas.AccountHashUpdateResponse:
+    """Устанавливает или очищает hash аккаунта владельца по ID пути."""
+    try:
+        account = await _find_owned_account(
+            session, user_id=user.id, account_id=id
+        )
+        updated_account = await _set_account_hash(
+            session, account=account, user_id=user.id, value=obj_in.hash
+        )
+        return schemas.AccountHashUpdateResponse.model_validate(
+            updated_account
+        )
+    except HTTPException:
+        raise
+    except Exception as exc:
+        await session.rollback()
+        logger.exception(
+            event=E.SYSTEM.API.ERROR,
+            extra={
+                'user_id': user.id,
+                'account_id': id,
+                'error': {'type': type(exc).__name__, 'msg': str(exc)}
+            }
+        )
+        raise
+
+
 @router.get(
     '/',
-    response_model=schemas.AccountExternal,
+    response_model=schemas.AccountExternalWithHash,
     status_code=status.HTTP_200_OK
 )
 async def get_account(
@@ -469,10 +639,6 @@ async def get_account(
         async with session.begin():
             # Создаем alias для модели Account
             A = aliased(models.Account)
-
-            # Принудительный фильтр: file_name IS NOT NULL
-            if filter.file_name__isnull is None:
-                filter.file_name__isnull = False
 
             # Строим список WHERE условий с учетом всех фильтров
             filter_conditions = \
@@ -537,7 +703,7 @@ async def get_account(
             )
             
             # Конвертируем ORM объект в схему Account с download_url
-            account_dict = schemas.AccountExternal.model_validate(
+            account_dict = schemas.AccountExternalWithHash.model_validate(
                 account
             ).model_dump()
             if account.file_name:
@@ -555,7 +721,7 @@ async def get_account(
                 }
             )
             
-            return schemas.AccountExternal(**account_dict)
+            return schemas.AccountExternalWithHash(**account_dict)
             
     except HTTPException:
         raise
