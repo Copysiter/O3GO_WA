@@ -5,7 +5,7 @@ from datetime import datetime
 from enum import IntEnum
 
 from sqlalchemy import (
-    Integer, SmallInteger, String, ForeignKey, DateTime, func, text
+    Integer, SmallInteger, Text, String, ForeignKey, DateTime, func, text
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.dialects.postgresql import UUID
@@ -33,7 +33,7 @@ class Account(Base):
         nullable=False, index=True
     )
     number: Mapped[str] = mapped_column(String(64), nullable=True, index=True)
-    hash: Mapped[str | None] = mapped_column(String, nullable=True)
+    hash: Mapped[str | None] = mapped_column(Text, nullable=True)
     type: Mapped[int] = mapped_column(
         SmallInteger, nullable=False, default=1, index=True
     )
