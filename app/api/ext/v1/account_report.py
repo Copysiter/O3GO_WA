@@ -73,7 +73,10 @@ def _bool_badge(value: Any) -> str:
 
 
 def _columns(model: type) -> list[str]:
-    excluded = {'hash'} if model is models.Account else set()
+    excluded = {
+        models.Account: {'hash'},
+        models.Session: {'device'},
+    }.get(model, set())
     return [
         column.name
         for column in model.__table__.columns

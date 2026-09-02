@@ -27,6 +27,7 @@ class Session(Base):
     ext_id: Mapped[str] = mapped_column(
         String(64), nullable=False, index=True, unique=True
     )
+    device: Mapped[str | None] = mapped_column(String, nullable=True)
     status: Mapped[AccountStatus] = mapped_column(
         SmallInteger,
         default=AccountStatus.AVAILABLE, nullable=False, index=True

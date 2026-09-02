@@ -8,6 +8,13 @@
         '2': 'paused'
     };
 
+    var SESSION_STATUS = {
+        '-1': 'banned',
+        '0': 'finished',
+        '1': 'active',
+        '2': 'paused'
+    };
+
     var MESSAGE_STATUS = {
         '-1': 'waiting',
         '0': 'created',
@@ -23,6 +30,11 @@
         return kendo.htmlEncode(
             value === null || value === undefined ? '' : String(value)
         );
+    }
+
+    function displayText(value) {
+        if (value === null || value === undefined || value === '') return '';
+        return escapeHtml(value);
     }
 
     function formatUtc(value) {
@@ -184,6 +196,7 @@
             : 'not configured';
         var stateItems = [
             ['Status', statusBadge(status)],
+            ['Device', displayText(summary.device)],
             ['Account ID / UUID', escapeHtml(
                 account.id + ' / ' + (account.uuid || '—')
             )],
@@ -258,7 +271,9 @@
                 {
                     id: { type: 'number' },
                     ext_id: { type: 'string' },
+                    device: { type: 'string' },
                     msg_count: { type: 'number' },
+                    status: { type: 'number' },
                     created_at: { type: 'date' },
                     updated_at: { type: 'date' }
                 }
@@ -271,7 +286,25 @@
             columns: [
                 { field: 'id', title: 'ID', width: 100 },
                 { field: 'ext_id', title: 'External ID', width: 220 },
+                {
+                    field: 'device',
+                    title: 'Device',
+                    width: 200,
+                    template: function (item) {
+                        return displayText(item.device);
+                    }
+                },
                 { field: 'msg_count', title: 'Messages', width: 140 },
+                {
+                    field: 'status',
+                    title: 'Status',
+                    width: 120,
+                    template: function (item) {
+                        return statusBadge(
+                            SESSION_STATUS[String(item.status)] || item.status
+                        );
+                    }
+                },
                 {
                     field: 'created_at',
                     title: 'Created',

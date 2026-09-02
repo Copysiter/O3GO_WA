@@ -134,6 +134,7 @@ window.initGrid = function() {
                             msg_count: { type: 'number' },
                             status: { type: 'number' },
                             user_id: { type: 'number' },
+                            device: { type: 'string', editable: false },
                             info_1: {type: 'string'},
                             info_2: {type: 'string'},
                             info_3: {type: 'string'},
@@ -319,6 +320,13 @@ window.initGrid = function() {
                             operator: 'eq',
                         },
                     },
+                },
+                {
+                    field: 'device',
+                    title: 'Device',
+                    sortable: false,
+                    filterable: false,
+                    template: "#: device || '' #",
                 },
                 {
                     field: 'type',

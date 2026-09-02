@@ -200,7 +200,8 @@ async def read_accounts(
     Returns:
         Объект `schemas.AccountList` вида:
         `{"data": [schemas.Account, ...], "total": <int>}` —
-        где `total` учитывает применённый фильтр.
+        где каждый аккаунт содержит device последней активной сессии,
+        а `total` учитывает применённый фильтр.
 
     Примеры:
         - `GET /accounts?status__in=1,2&order_by=-id`
@@ -211,19 +212,22 @@ async def read_accounts(
             f.user_id = current_user.id
         if not getattr(f, "order_by", None):
             f.order_by = ["-id"]
-        data = await crud.account.list(db, filter=f, skip=skip, limit=limit)
+        account_rows = await crud.account.list_with_active_session_device(
+            db, filter=f, skip=skip, limit=limit
+        )
         count = await crud.account.count(db, filter=f)
 
         now = datetime.now(timezone.utc)
-        data = list(map(
-            lambda item: (
-                setattr(item, 'status', AccountStatus.PAUSED) or item
-            ) if (
+        data = []
+        for item, device in account_rows:
+            setattr(item, "device", device)
+            if (
                 item.cooldown is not None and item.updated_at is not None
                 and item.updated_at + timedelta(minutes=item.cooldown) > now
                 and item.status == AccountStatus.AVAILABLE
-            ) else item, data
-        ))
+            ):
+                item.status = AccountStatus.PAUSED
+            data.append(item)
 
         return {'data': data, 'total': count}
     except Exception as e:
@@ -363,7 +367,7 @@ async def read_account_summary(
     id: int,
     current_user: models.User = Depends(deps.get_current_active_user),
 ) -> schemas.AccountReportSummary:
-    """Возвращает Overview и агрегаты детальной страницы аккаунта."""
+    """Возвращает Overview, device активной сессии и агрегаты аккаунта."""
     try:
         result = await crud.account.get_report_summary(
             db,
@@ -426,6 +430,7 @@ async def read_account_summary(
             ),
             session_count=int(stats["session_count"] or 0),
             current_session_id=stats["current_session_id"],
+            device=stats["device"],
             message_count_current=int(stats["message_count_current"] or 0),
             message_count_total=int(stats["message_count_total"] or 0),
             delivery_current=_delivery_summary(

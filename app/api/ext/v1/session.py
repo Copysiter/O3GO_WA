@@ -142,6 +142,13 @@ async def start_session(
     number: str = Query(
         ..., max_length=64, description="Номер аккаунта"
     ),
+    device: str | None = Query(
+        None,
+        alias="api_key",
+        description=(
+            "Идентификатор устройства; не используется для аутентификации"
+        )
+    ),
     info_1: str | None = Query(
         None, max_length=256, description="Служебное инфо поле 1"
     ),
@@ -171,6 +178,9 @@ async def start_session(
     """
     Стартует сессию:
     если аккаунта нет — создаёт, если сессия уже существует — ошибка.
+
+    Query-параметр `api_key` сохраняется как device сессии и не заменяет
+    аутентификацию через `X-Api-Key` или `x_api_key`.
     """
     try:
         # Проверяем, нет ли уже сессии с таким ext_id
@@ -233,6 +243,7 @@ async def start_session(
         obj_in = schemas.SessionCreate(
             account_id=account.id,
             ext_id=ext_id,
+            device=device,
             status=AccountStatus.ACTIVE
         )
         for info in [

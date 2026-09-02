@@ -12,6 +12,7 @@ class SessionBase(BaseModel):
     """Базовая схема сессии аккаунта с общими полями"""
     account_id: Optional[int] = Field(None, description="ID аккаунта")
     ext_id: Optional[str] = Field(None, description="Внешний ID сессии")
+    device: Optional[str] = Field(None, description="Идентификатор устройства")
     msg_count: Optional[int] = Field(
         None, description="Количество отправленных сообщений"
     )

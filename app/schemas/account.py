@@ -116,6 +116,9 @@ class AccountInDBBase(AccountBase):
 class Account(AccountInDBBase):
     """Схема аккаунта, возвращаемая из API"""
     user: UserReference
+    device: str | None = Field(
+        None, description="Device последней активной сессии"
+    )
     download_url: str | None = Field(
         None, description="URL для скачивания архива"
     )
@@ -216,6 +219,7 @@ class AccountReportSummary(BaseModel):
     account: AccountReportOverview
     session_count: int = 0
     current_session_id: int | None = None
+    device: str | None = None
     message_count_current: int = 0
     message_count_total: int = 0
     delivery_current: AccountReportDelivery

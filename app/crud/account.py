@@ -50,6 +50,39 @@ class AccountCRUD(
         result = await db.execute(stmt)
         return result.scalars().all()
 
+    async def list_with_active_session_device(
+        self,
+        db: AsyncSession,
+        *,
+        filter: AccountFilter | dict[str, Any] | None = None,
+        skip: int = 0,
+        limit: int = 100
+    ) -> Sequence[tuple[Account, str | None]]:
+        """Возвращает аккаунты с device последней активной сессии."""
+        active_session_device = (
+            select(Session.device)
+            .where(
+                Session.account_id == Account.id,
+                Session.status == SessionStatus.ACTIVE
+            )
+            .order_by(Session.id.desc())
+            .limit(1)
+            .correlate(Account)
+            .scalar_subquery()
+        )
+        f = self._get_filter(filter)
+        stmt = select(
+            Account,
+            active_session_device.label("device")
+        )
+        if f is not None:
+            stmt = f.filter(stmt)
+            stmt = f.sort(stmt)
+        stmt = stmt.offset(skip).limit(limit)
+
+        result = await db.execute(stmt)
+        return [(row[0], row[1]) for row in result.all()]
+
     async def get_report_summary(
         self,
         db: AsyncSession,
@@ -67,14 +100,25 @@ class AccountCRUD(
         if account is None:
             return None
 
-        current_session_id = (
-            select(Session.id)
+        current_session = (
+            select(
+                Session.id.label("id"),
+                Session.device.label("device")
+            )
             .where(
                 Session.account_id == account_id,
                 Session.status == SessionStatus.ACTIVE
             )
             .order_by(Session.id.desc())
             .limit(1)
+            .cte("current_session")
+        )
+        current_session_id = (
+            select(current_session.c.id)
+            .scalar_subquery()
+        )
+        current_session_device = (
+            select(current_session.c.device)
             .scalar_subquery()
         )
         session_count = (
@@ -91,6 +135,7 @@ class AccountCRUD(
             select(
                 session_count.label("session_count"),
                 current_session_id.label("current_session_id"),
+                current_session_device.label("device"),
                 func.count(Message.id).label("message_count_total"),
                 func.count(Message.id).filter(
                     Message.session_id == current_session_id
