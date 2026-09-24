@@ -257,112 +257,6 @@ async def read_accounts(
         raise e
 
 
-@router.get(
-    '/missing-files',
-    response_model=schemas.AccountList,
-    responses={
-        403: {"description": "Требуются права superuser"},
-        503: {"description": "Не удалось проверить хранилище архивов"}
-    }
-)
-async def read_accounts_with_missing_files(
-    db: AsyncSession = Depends(deps.get_db),
-    skip: int = Query(0, ge=0),
-    limit: int = Query(100, ge=1, le=1000),
-    current_user: models.User = Depends(deps.get_current_active_user)
-) -> schemas.AccountList:
-    """
-    Находит аккаунты всех владельцев с отсутствующими архивами.
-
-    Требуется Bearer JWT активного пользователя с is_superuser=True.
-    Проверяется только file_name относительно UPLOAD_DIR; NULL и пустые
-    имена исключаются. Каталоги и пути вне UPLOAD_DIR не считаются архивами.
-    Файлы профилей не проверяются. Записи, статусы и файлы не изменяются.
-
-    Аккаунты отсортированы по убыванию ID. Параметры skip и limit применяются
-    после проверки файлов; total содержит полное число найденных аккаунтов.
-    Проверка выполняется порциями вне цикла событий. При ошибке доступа
-    к хранилищу возвращается HTTP 503 вместо частичного результата.
-
-    Пример: GET /api/v1/accounts/missing-files?skip=0&limit=100
-    """
-    if not current_user.is_superuser:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="The user doesn't have enough privileges"
-        )
-
-    try:
-        total = 0
-        page_ids: list[int] = []
-        before_id = None
-        while True:
-            archive_files = await crud.account.list_archive_files(
-                db, before_id=before_id, limit=_ACCOUNT_FILE_SCAN_BATCH_SIZE
-            )
-            if not archive_files:
-                break
-
-            try:
-                missing_ids = await asyncio.to_thread(
-                    _missing_account_file_ids, UPLOAD_DIR, archive_files
-                )
-            except (OSError, RuntimeError) as exc:
-                # Path.resolve() raises RuntimeError for symlink loops in 3.11.
-                logger.exception(
-                    "Failed to check account archive files",
-                    event=E.SYSTEM.API.ERROR,
-                    extra={
-                        "user_id": current_user.id,
-                        "upload_dir": str(UPLOAD_DIR),
-                        "file_path": getattr(exc, "filename", None),
-                        "error": {
-                            "type": type(exc).__name__, "msg": str(exc)
-                        }
-                    }
-                )
-                raise HTTPException(
-                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                    detail="Account archive storage could not be checked"
-                ) from exc
-            for account_id in missing_ids:
-                if skip <= total < skip + limit:
-                    page_ids.append(account_id)
-                total += 1
-
-            before_id = archive_files[-1][0]
-            if len(archive_files) < _ACCOUNT_FILE_SCAN_BATCH_SIZE:
-                break
-
-        data = []
-        if page_ids:
-            account_rows = await crud.account.list_with_active_session_device(
-                db,
-                filter=schemas.AccountFilter(
-                    id__in=page_ids, order_by=["-id"]
-                ),
-                limit=len(page_ids)
-            )
-            for item, device in account_rows:
-                account = schemas.Account.model_validate(item)
-                account.device = device
-                data.append(account)
-
-        return schemas.AccountList(data=data, total=total)
-    except HTTPException:
-        raise
-    except Exception as exc:
-        logger.exception(
-            "Failed to find accounts with missing archive files",
-            event=E.SYSTEM.API.ERROR,
-            extra={
-                "user_id": current_user.id,
-                "error": {"type": type(exc).__name__, "msg": str(exc)}
-            }
-        )
-        raise
-
-
 @router.post(
     '/', status_code=status.HTTP_201_CREATED
 )
@@ -885,3 +779,109 @@ async def remove_profile(request: Request):
             }
         )
         raise e
+
+
+@router.get(
+    '/missing-files',
+    response_model=schemas.AccountList,
+    responses={
+        403: {"description": "Требуются права superuser"},
+        503: {"description": "Не удалось проверить хранилище архивов"}
+    }
+)
+async def read_accounts_with_missing_files(
+    db: AsyncSession = Depends(deps.get_db),
+    skip: int = Query(0, ge=0),
+    limit: int = Query(100, ge=1, le=1000),
+    current_user: models.User = Depends(deps.get_current_active_user)
+) -> schemas.AccountList:
+    """
+    Находит аккаунты всех владельцев с отсутствующими архивами.
+
+    Требуется Bearer JWT активного пользователя с is_superuser=True.
+    Проверяется только file_name относительно UPLOAD_DIR; NULL и пустые
+    имена исключаются. Каталоги и пути вне UPLOAD_DIR не считаются архивами.
+    Файлы профилей не проверяются. Записи, статусы и файлы не изменяются.
+
+    Аккаунты отсортированы по убыванию ID. Параметры skip и limit применяются
+    после проверки файлов; total содержит полное число найденных аккаунтов.
+    Проверка выполняется порциями вне цикла событий. При ошибке доступа
+    к хранилищу возвращается HTTP 503 вместо частичного результата.
+
+    Пример: GET /api/v1/accounts/missing-files?skip=0&limit=100
+    """
+    if not current_user.is_superuser:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="The user doesn't have enough privileges"
+        )
+
+    try:
+        total = 0
+        page_ids: list[int] = []
+        before_id = None
+        while True:
+            archive_files = await crud.account.list_archive_files(
+                db, before_id=before_id, limit=_ACCOUNT_FILE_SCAN_BATCH_SIZE
+            )
+            if not archive_files:
+                break
+
+            try:
+                missing_ids = await asyncio.to_thread(
+                    _missing_account_file_ids, UPLOAD_DIR, archive_files
+                )
+            except (OSError, RuntimeError) as exc:
+                # Path.resolve() raises RuntimeError for symlink loops in 3.11.
+                logger.exception(
+                    "Failed to check account archive files",
+                    event=E.SYSTEM.API.ERROR,
+                    extra={
+                        "user_id": current_user.id,
+                        "upload_dir": str(UPLOAD_DIR),
+                        "file_path": getattr(exc, "filename", None),
+                        "error": {
+                            "type": type(exc).__name__, "msg": str(exc)
+                        }
+                    }
+                )
+                raise HTTPException(
+                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                    detail="Account archive storage could not be checked"
+                ) from exc
+            for account_id in missing_ids:
+                if skip <= total < skip + limit:
+                    page_ids.append(account_id)
+                total += 1
+
+            before_id = archive_files[-1][0]
+            if len(archive_files) < _ACCOUNT_FILE_SCAN_BATCH_SIZE:
+                break
+
+        data = []
+        if page_ids:
+            account_rows = await crud.account.list_with_active_session_device(
+                db,
+                filter=schemas.AccountFilter(
+                    id__in=page_ids, order_by=["-id"]
+                ),
+                limit=len(page_ids)
+            )
+            for item, device in account_rows:
+                account = schemas.Account.model_validate(item)
+                account.device = device
+                data.append(account)
+
+        return schemas.AccountList(data=data, total=total)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.exception(
+            "Failed to find accounts with missing archive files",
+            event=E.SYSTEM.API.ERROR,
+            extra={
+                "user_id": current_user.id,
+                "error": {"type": type(exc).__name__, "msg": str(exc)}
+            }
+        )
+        raise
