@@ -18,6 +18,25 @@ class AccountCRUD(
     def __init__(self) -> None:
         super().__init__(model=Account, filter_class=AccountFilter)
 
+    async def list_archive_files(
+        self,
+        db: AsyncSession,
+        *,
+        before_id: int | None = None,
+        limit: int = 1000
+    ) -> Sequence[tuple[int, str]]:
+        """Возвращает порцию ID и непустых имён архивов по убыванию ID."""
+        stmt = select(Account.id, Account.file_name).where(
+            Account.file_name.is_not(None),
+            Account.file_name != ""
+        )
+        if before_id is not None:
+            stmt = stmt.where(Account.id < before_id)
+        stmt = stmt.order_by(Account.id.desc()).limit(limit)
+
+        result = await db.execute(stmt)
+        return [(row[0], row[1]) for row in result.all()]
+
     async def get_owned_by_id(
         self,
         db: AsyncSession,
