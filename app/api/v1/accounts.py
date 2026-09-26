@@ -67,6 +67,7 @@ import app.crud as crud
 import app.models as models
 import app.schemas as schemas
 from app.services.log import log_service
+from app.utils.account_files import account_file_exists as _account_file_exists
 
 
 UPLOAD_DIR = Path('upload/wa')
@@ -79,20 +80,6 @@ _ACCOUNT_FILE_SCAN_BATCH_SIZE = 1000
 
 
 router = APIRouter()
-
-
-def _account_file_exists(directory: Path, file_name: str | None) -> bool:
-    """Проверяет наличие настроенного файла аккаунта."""
-    if not file_name:
-        return False
-
-    base_path = directory.resolve()
-    file_path = (base_path / file_name).resolve()
-    try:
-        file_path.relative_to(base_path)
-    except ValueError:
-        return False
-    return file_path.is_file()
 
 
 def _missing_account_file_ids(
