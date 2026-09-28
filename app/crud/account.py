@@ -18,6 +18,48 @@ class AccountCRUD(
     def __init__(self) -> None:
         super().__init__(model=Account, filter_class=AccountFilter)
 
+    async def get_upload_snapshot(
+        self,
+        db: AsyncSession,
+        *,
+        number: str,
+        user_id: int
+    ) -> dict[str, Any] | None:
+        """Read an owner's scalar snapshot without an ORM entity or hash."""
+        columns = Account.__table__.c
+        stmt = select(
+            columns.id,
+            columns.uuid,
+            columns.user_id,
+            columns.number,
+            columns.type,
+            columns.file_name,
+            columns.profile_file_name,
+            columns.status,
+            columns.created_at,
+            columns.updated_at,
+            columns.limit,
+            columns.cooldown,
+            columns.attempts,
+            columns.session_count,
+            columns.geo,
+            columns.info_1,
+            columns.info_2,
+            columns.info_3,
+            columns.info_4,
+            columns.info_5,
+            columns.info_6,
+            columns.info_7,
+            columns.info_8
+        ).where(
+            columns.number == number,
+            columns.user_id == user_id,
+        ).limit(1)
+
+        result = await db.execute(stmt)
+        row = result.mappings().first()
+        return dict(row) if row is not None else None
+
     async def list_archive_files(
         self,
         db: AsyncSession,
@@ -36,6 +78,83 @@ class AccountCRUD(
 
         result = await db.execute(stmt)
         return [(row[0], row[1]) for row in result.all()]
+
+    async def list_archive_restore_candidates(
+        self,
+        db: AsyncSession,
+        *,
+        before_id: int | None = None,
+        limit: int = 1000
+    ) -> Sequence[tuple[int, str | None, str]]:
+        """Read a global page of ID, number and nonempty archive name."""
+        stmt = select(Account.id, Account.number, Account.file_name).where(
+            Account.file_name.is_not(None),
+            Account.file_name != ""
+        )
+        if before_id is not None:
+            stmt = stmt.where(Account.id < before_id)
+        stmt = stmt.order_by(Account.id.desc()).limit(limit)
+
+        result = await db.execute(stmt)
+        return [(row[0], row[1], row[2]) for row in result.all()]
+
+    async def is_file_referenced(
+        self,
+        db: AsyncSession,
+        *,
+        file_name: str,
+        profile: bool = False
+    ) -> bool:
+        """Check an exact archive or profile name across all accounts."""
+        column = Account.profile_file_name if profile else Account.file_name
+        stmt = select(
+            select(Account.id).where(column == file_name).exists()
+        )
+        result = await db.execute(stmt)
+        return bool(result.scalar_one())
+
+    async def get_archive_file_name(
+        self,
+        db: AsyncSession,
+        *,
+        account_id: int,
+    ) -> str | None:
+        """Read the current archive reference without loading an ORM object."""
+        columns = Account.__table__.c
+        stmt = select(columns.file_name).where(columns.id == account_id)
+        result = await db.execute(stmt)
+        return result.scalar_one_or_none()
+
+    async def restore_archive_file(
+        self,
+        db: AsyncSession,
+        *,
+        account_id: int,
+        old_file_name: str,
+        new_file_name: str
+    ) -> tuple[int, str] | None:
+        """Replace an unchanged archive reference if the new name is unused."""
+        referenced_account = Account.__table__.alias("referenced_account")
+        new_file_referenced = select(referenced_account.c.id).where(
+            referenced_account.c.file_name == new_file_name
+        ).exists()
+        stmt = (
+            update(Account)
+            .where(
+                Account.id == account_id,
+                Account.file_name == old_file_name,
+                ~new_file_referenced
+            )
+            .values(
+                file_name=new_file_name,
+                updated_at=Account.updated_at
+            )
+            .returning(Account.id, Account.file_name)
+            .execution_options(synchronize_session=False)
+        )
+        result = await db.execute(stmt)
+        row = result.one_or_none()
+        return (row[0], row[1]) if row is not None else None
 
     async def get_owned_by_id(
         self,

@@ -3,6 +3,8 @@ from typing import Any, Iterable
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.adapters.db.session import async_session
+
 import app.crud as crud
 import app.models as models
 import app.schemas as schemas
@@ -58,6 +60,8 @@ class LogService:
     ) -> dict[str, Any]:
         data = item.model_dump(exclude_unset=True) \
             if isinstance(item, BaseModel) else dict(item)
+        # Multi-row INSERT needs the account_id key in every item.
+        data.setdefault("account_id", None)
         if "status" in data:
             data["status"] = self._normalize_status(
                 data.get("event", ""), data["status"]
@@ -70,7 +74,7 @@ class LogService:
         *,
         event: str,
         source: str,
-        account_id: int,
+        account_id: int | None = None,
         session_id: int | None = None,
         message_id: int | None = None,
         user_id: int | None = None,
@@ -90,6 +94,35 @@ class LogService:
             context=context or {}
         )
         return await crud.log.create(db=db, obj_in=obj_in, commit=commit)
+
+    async def record_independent(
+        self,
+        *,
+        event: str,
+        source: str,
+        account_id: int | None = None,
+        session_id: int | None = None,
+        message_id: int | None = None,
+        user_id: int | None = None,
+        status: str | int | None = None,
+        context: dict[str, Any] | None = None,
+    ) -> models.Log:
+        """Commit an event in its own session; propagate persistence errors."""
+        async with async_session() as db:
+            record = await self.record(
+                db,
+                event=event,
+                source=source,
+                account_id=account_id,
+                session_id=session_id,
+                message_id=message_id,
+                user_id=user_id,
+                status=status,
+                context=context,
+                commit=False,
+            )
+            await db.commit()
+            return record
 
     async def records(
         self,

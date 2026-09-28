@@ -14,9 +14,9 @@ class Log(Base):
     id: Mapped[int] = mapped_column(primary_key=True, index=True)
     event: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
     source: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
-    account_id: Mapped[int] = mapped_column(
+    account_id: Mapped[int | None] = mapped_column(
         Integer, ForeignKey("account.id", ondelete="CASCADE"),
-        nullable=False, index=True
+        nullable=True, index=True
     )
     session_id: Mapped[int] = mapped_column(
         Integer, ForeignKey("session.id", ondelete="CASCADE"),

@@ -1,17 +1,25 @@
+import asyncio
+import errno
+import json
+import sys
 import uuid
 import time
 import aiofiles
 
-from typing import Any
+from collections.abc import Collection, Mapping
+from enum import Enum
+from traceback import walk_tb
+from typing import Any, Literal
 from pathlib import Path
 from urllib.parse import urljoin
-from datetime import datetime
+from datetime import date, datetime
 
 from fastapi import (
     Request, APIRouter, Depends, UploadFile, File, HTTPException, status
 )
 from fastapi.responses import FileResponse
 from sqlalchemy import select, update, func, or_
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import aliased
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -32,6 +40,16 @@ PROFILE_UPLOAD_DIR = Path('upload/wa/profile')
 PROFILE_UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
 router = APIRouter()
+
+_UPLOAD_PARAMETER_FIELDS = (
+    "number", "type", "limit", "cooldown", "geo",
+    *(f"info_{i}" for i in range(1, 9)),
+)
+_UPLOAD_SNAPSHOT_FIELDS = (
+    "id", "uuid", "user_id", "file_name", "profile_file_name", "status",
+    "attempts", "session_count", "created_at", "updated_at",
+    *_UPLOAD_PARAMETER_FIELDS,
+)
 
 
 def _build_account_filter_conditions(filter_obj, model_alias, user_id):
@@ -147,6 +165,253 @@ def _apply_upload_hash(
         account_data['hash'] = obj_in.hash
 
 
+def _prepare_upload_data(
+    obj_in: schemas.AccountUpload,
+    *,
+    provided_fields: Collection[str],
+    user_id: int,
+    account_uuid: uuid.UUID,
+    file_name: str,
+    profile_file_name: str | None,
+    is_update: bool,
+) -> dict[str, Any]:
+    """Preserve omitted required values without changing nullable semantics."""
+    if "type" in provided_fields and obj_in.type is None:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="The type field cannot be empty",
+        )
+
+    data = obj_in.model_dump(exclude_unset=not is_update, exclude={"hash"})
+    if "type" not in provided_fields:
+        data.pop("type", None)
+    _apply_upload_hash(data, obj_in)
+    data.update({
+        "uuid": account_uuid,
+        "user_id": user_id,
+        "file_name": file_name,
+        "profile_file_name": profile_file_name,
+    })
+    return data
+
+
+def _safe_upload_text(value: str) -> str:
+    """Represent NUL and lone surrogates as printable escapes for JSONB."""
+    text = value.encode("utf-8", errors="backslashreplace").decode("utf-8")
+    return text.replace("\x00", r"\u0000")
+
+
+def _safe_upload_value(value: Any) -> str | int | bool | None:
+    """Encode known scalar metadata without stringifying arbitrary objects."""
+    if isinstance(value, Enum):
+        value = value.value
+    if isinstance(value, str):
+        return _safe_upload_text(value)
+    if value is None or isinstance(value, (int, bool)):
+        return value
+    if isinstance(value, (datetime, date)):
+        return _safe_upload_text(value.isoformat())
+    if isinstance(value, (uuid.UUID, Path)):
+        return _safe_upload_text(str(value))
+    return "[omitted]"
+
+
+def _upload_snapshot(
+    values: Mapping[str, Any] | None,
+) -> dict[str, Any] | None:
+    """Copy only approved account fields into JSON-compatible metadata."""
+    if values is None:
+        return None
+    return {
+        field: _safe_upload_value(values[field])
+        for field in _UPLOAD_SNAPSHOT_FIELDS if field in values
+    }
+
+
+def _upload_file_metadata(file: UploadFile | None) -> dict[str, Any] | None:
+    """Describe an upload without reading its body or copying its headers."""
+    if file is None:
+        return None
+    return {
+        "filename": _safe_upload_value(file.filename),
+        "content_type": _safe_upload_value(file.content_type),
+        "size": _safe_upload_value(file.size),
+    }
+
+
+def _upload_error_details(error: BaseException) -> dict[str, Any]:
+    """Keep diagnostic codes and stack locations, not SQL or raw messages."""
+    details: dict[str, Any] = {
+        "type": _safe_upload_text(type(error).__name__),
+        "message": "Upload operation failed",
+        "traceback": [
+            {
+                "file": _safe_upload_text(frame.f_code.co_filename),
+                "function": _safe_upload_text(frame.f_code.co_name),
+                "line": line,
+            }
+            for frame, line in walk_tb(error.__traceback__)
+        ],
+    }
+    if isinstance(error, SQLAlchemyError):
+        details["message"] = "Database operation failed"
+    elif isinstance(error, HTTPException):
+        details["message"] = "HTTP request processing failed"
+        if isinstance(error.status_code, int):
+            details["http_status"] = error.status_code
+    elif isinstance(error, OSError):
+        details["message"] = "Operating system operation failed"
+
+    pending = [error]
+    visited: set[int] = set()
+    cause_types = []
+    while pending:
+        current = pending.pop()
+        if id(current) in visited:
+            continue
+        visited.add(id(current))
+        if current is not error:
+            cause_types.append(_safe_upload_text(type(current).__name__))
+        sqlstate = (
+            getattr(current, "sqlstate", None)
+            or getattr(current, "pgcode", None)
+        )
+        if (
+            isinstance(sqlstate, str) and len(sqlstate) == 5
+            and sqlstate.isascii() and sqlstate.isalnum()
+        ):
+            details.setdefault("sqlstate", sqlstate)
+        for field in (
+            "schema_name", "table_name", "column_name", "constraint_name",
+        ):
+            value = getattr(current, field, None)
+            if isinstance(value, str):
+                details.setdefault(field, _safe_upload_text(value))
+        if isinstance(current, OSError):
+            if isinstance(current.errno, int):
+                details.setdefault("errno", current.errno)
+                details.setdefault("errno_name", errno.errorcode.get(
+                    current.errno
+                ))
+            if current.filename is not None:
+                details.setdefault(
+                    "filename", _safe_upload_value(current.filename)
+                )
+        original = getattr(current, "orig", None)
+        if isinstance(original, BaseException):
+            pending.append(original)
+        cause = current.__cause__
+        if cause is None and not current.__suppress_context__:
+            cause = current.__context__
+        if isinstance(cause, BaseException):
+            pending.append(cause)
+    details["cause_types"] = cause_types
+    return details
+
+
+def _build_upload_error_context(
+    *,
+    request: Request,
+    obj_in: schemas.AccountUpload,
+    provided_fields: Collection[str],
+    file: UploadFile,
+    operation_id: uuid.UUID,
+    user_id: int,
+    branch: Literal["create", "update"] | None,
+    stage: str,
+    db_outcome: Literal["not_committed", "committed", "unknown"],
+    error: BaseException,
+    profile_file: UploadFile | None = None,
+    before: Mapping[str, Any] | None = None,
+    requested: Mapping[str, Any] | None = None,
+    returned: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Snapshot safe diagnostics without retaining request or ORM objects."""
+    known_fields = set(_UPLOAD_PARAMETER_FIELDS) | {
+        "hash", "file", "profile_file",
+    }
+    return {
+        "operation_id": _safe_upload_value(operation_id),
+        "user_id": _safe_upload_value(user_id),
+        "branch": _safe_upload_value(branch),
+        "stage": _safe_upload_value(stage),
+        "db_outcome": _safe_upload_value(db_outcome),
+        "request": {
+            "method": _safe_upload_text(request.method),
+            "path": _safe_upload_text(request.scope["path"]),
+            "parameters": _upload_snapshot(obj_in.model_dump(
+                include=set(_UPLOAD_PARAMETER_FIELDS)
+            )),
+            "provided_fields": sorted(set(provided_fields) & known_fields),
+            "hash_nonempty": bool(obj_in.hash),
+            "files": {
+                "archive": _upload_file_metadata(file),
+                "profile": _upload_file_metadata(profile_file),
+            },
+        },
+        "storage": {
+            "archive_directory": _safe_upload_value(UPLOAD_DIR),
+            "profile_directory": _safe_upload_value(PROFILE_UPLOAD_DIR),
+        },
+        "before": _upload_snapshot(before),
+        "requested": _upload_snapshot(requested),
+        "returned": _upload_snapshot(returned),
+        "error": _upload_error_details(error),
+    }
+
+
+async def _save_upload_file(file: UploadFile, file_path: Path) -> None:
+    """Write and close a new upload without removing existing artifacts."""
+    content = await file.read()
+    async with aiofiles.open(file_path, "wb") as destination:
+        await destination.write(content)
+
+
+async def _rollback_upload_transaction(
+    session: AsyncSession,
+) -> dict[str, Any]:
+    """Release the transaction before audit, retaining safe error details."""
+    errors: dict[str, Any] = {}
+    if not session.in_transaction():
+        return errors
+    try:
+        await session.rollback()
+    except (Exception, asyncio.CancelledError) as rollback_error:
+        errors["rollback"] = _upload_error_details(rollback_error)
+        try:
+            await session.close()
+        except (Exception, asyncio.CancelledError) as close_error:
+            errors["close"] = _upload_error_details(close_error)
+    return errors
+
+
+async def _emit_upload_audit_failure(
+    *,
+    operation_id: uuid.UUID,
+    stage: str,
+    db_outcome: str,
+    error: BaseException,
+    logger_error: BaseException,
+) -> None:
+    """Emit a bounded emergency event without request data or raw errors."""
+    event = {
+        "event": "account.error.audit_unavailable",
+        "operation_id": str(operation_id),
+        "stage": _safe_upload_text(stage),
+        "db_outcome": _safe_upload_text(db_outcome),
+        "error_type": _safe_upload_text(type(error).__name__),
+        "logger_error_type": _safe_upload_text(type(logger_error).__name__),
+    }
+    try:
+        await asyncio.to_thread(sys.stderr.write, json.dumps(event) + "\n")
+    except (Exception, asyncio.CancelledError) as output_error:
+        error.add_note(
+            "Account upload audit and emergency output unavailable "
+            f"(operation_id={operation_id}, "
+            f"output_error={_safe_upload_text(type(output_error).__name__)})."
+        )
+
+
 def _account_not_found() -> HTTPException:
     return HTTPException(
         status_code=status.HTTP_404_NOT_FOUND,
@@ -227,314 +492,310 @@ async def _set_account_hash(
 )
 async def upload_archive(
     *,
+    request: Request,
     file: UploadFile = File(...),
     profile_file: UploadFile | None = File(None),
     session: AsyncSession = Depends(deps.get_db),
-    user=Depends(deps.get_user_by_api_key),
-    obj_in: schemas.AccountUpload = \
-            Depends(deps.as_form(schemas.AccountUpload))
-) -> Any:
+    user: models.User = Depends(deps.get_user_by_api_key),
+    obj_in: schemas.AccountUpload = Depends(
+        deps.as_form(schemas.AccountUpload)
+    ),
+) -> schemas.AccountExternal:
     """
-    Загрузка архива аккаунта.
-    
-    Принимает файл и все поля AccountCreate для создания записи в БД.
+    Загрузить архив .tar.gz и необязательный профиль .txt по API Key.
+
+    Создаёт аккаунт либо обновляет найденный по number и user_id
+    аутентифицированного пользователя. Например, multipart с
+    number=100, type=2 и file=account.tar.gz возвращает AccountExternal (201).
+    Зависимости предоставляют сессию БД, пользователя и поля AccountUpload.
+    Файловый I/O выполняется между короткими транзакциями. Старые файлы
+    удаляются только после подтверждённого commit и проверки ссылок на них.
+    Ошибки cleanup журналируются независимо и не отменяют успешную загрузку.
     """
-    try:
-        # Проверка расширения файла
-        if not file.filename.endswith('.tar.gz'):
-            logger.warning(
-                f'Invalid file extension: {file.filename}',
-                event=E.SYSTEM.API.FAILURE,
-                extra={'user_id': user.id, 'filename': file.filename}
+    actor_id = user.id
+    operation_id = uuid.uuid4()
+    before: dict[str, Any] | None = None
+    requested: dict[str, Any] | None = None
+    returned: dict[str, Any] | None = None
+    branch: Literal["create", "update"] | None = None
+    stage = "validate"
+    db_outcome: Literal["not_committed", "committed", "unknown"] = (
+        "not_committed"
+    )
+    provided_fields: set[str] = set()
+    files_written: list[str] = []
+    session_release_failed = False
+    transaction_cleanup_errors: dict[str, Any] = {}
+
+    async def finalize_error(
+        error: BaseException, *, cleanup: dict[str, Any] | None = None,
+    ) -> bool:
+        """Audit after releasing the business session, preserving the error."""
+        nonlocal session_release_failed
+        context: dict[str, Any] = {
+            "operation_id": str(operation_id),
+            "user_id": actor_id,
+            "branch": branch,
+            "stage": stage,
+            "db_outcome": db_outcome,
+            "files_written": list(files_written),
+            "error": {
+                "type": _safe_upload_text(type(error).__name__),
+                "message": "Upload operation failed",
+            },
+        }
+        cleanup_errors = await _rollback_upload_transaction(session)
+        transaction_cleanup_errors.update(cleanup_errors)
+        if "close" in cleanup_errors:
+            session_release_failed = True
+        context["transaction_cleanup_errors"] = dict(
+            transaction_cleanup_errors
+        )
+        transaction_released = (
+            not session_release_failed and not session.in_transaction()
+        )
+        try:
+            context.update(_build_upload_error_context(
+                request=request,
+                obj_in=obj_in,
+                provided_fields=provided_fields,
+                file=file,
+                profile_file=profile_file,
+                operation_id=operation_id,
+                user_id=actor_id,
+                branch=branch,
+                stage=stage,
+                db_outcome=db_outcome,
+                before=before,
+                requested=requested,
+                returned=returned,
+                error=error,
+            ))
+            if cleanup is not None:
+                context["cleanup"] = {
+                    key: _safe_upload_value(value)
+                    for key, value in cleanup.items()
+                }
+            if transaction_released:
+                account_id = before["id"] if before is not None else None
+                if account_id is None and db_outcome == "committed":
+                    account_id = returned["id"] if returned else None
+                await log_service.record_independent(
+                    event="account.error",
+                    source="ext_api",
+                    account_id=account_id,
+                    user_id=actor_id,
+                    context=context,
+                )
+                return True
+        except (Exception, asyncio.CancelledError) as journal_error:
+            context["error_journal_error"] = _upload_error_details(
+                journal_error
             )
+
+        # A failed close leaves the transaction outcome uncertain: opening an
+        # independent audit transaction could wait on its account foreign key.
+        try:
+            await asyncio.to_thread(
+                logger.error,
+                "Account upload error journal unavailable",
+                event=E.SYSTEM.API.ERROR,
+                extra=context,
+            )
+        except (Exception, asyncio.CancelledError) as logger_error:
+            await _emit_upload_audit_failure(
+                operation_id=operation_id, stage=stage,
+                db_outcome=db_outcome, error=error, logger_error=logger_error,
+            )
+        return transaction_released
+
+    async def report_error(
+        error: BaseException, *, cleanup: dict[str, Any] | None = None,
+    ) -> bool:
+        finalizer = asyncio.create_task(finalize_error(error, cleanup=cleanup))
+        cancellation: asyncio.CancelledError | None = None
+        while True:
+            try:
+                # Dependency teardown must not race with this session's audit.
+                released = await asyncio.shield(finalizer)
+                break
+            except asyncio.CancelledError as cancelled:
+                if finalizer.cancelled():
+                    raise
+                if cancellation is None:
+                    cancellation = cancelled
+        if cancellation is not None:
+            raise cancellation
+        return released
+
+    try:
+        provided_fields = set((await request.form()).keys())
+        response_user = schemas.User.model_validate(user)
+        archive_filename = file.filename or ""
+        profile_filename = (
+            (profile_file.filename or "") if profile_file else ""
+        )
+        if not archive_filename.endswith('.tar.gz'):
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="The file must have a .tar.gz extension"
             )
-
-        # Проверка расширения файла профиля
-        if profile_file and not profile_file.filename.endswith('.txt'):
-            logger.warning(
-                f'Invalid profile file extension: {profile_file.filename}',
-                event=E.SYSTEM.API.FAILURE,
-                extra={'user_id': user.id, 'filename': profile_file.filename}
-            )
+        if profile_file and not profile_filename.endswith('.txt'):
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="The file must have a .txt extension"
             )
 
-        # Проверка существования аккаунта с таким же number (глобальный поиск)
-        existing_account = await crud.account.get_by(
-            db=session, number=obj_in.number
+        stage = "lookup"
+        await session.begin()
+        before = await crud.account.get_upload_snapshot(
+            db=session, number=obj_in.number, user_id=actor_id
         )
+        await session.commit()
+        branch = "update" if before is not None else "create"
 
-        # Режим обновления: если аккаунт найден
-        if existing_account:
-            logger.info(
-                'Account found by number, updating existing account',
-                event=E.SYSTEM.API.REQUEST,
-                extra={
-                    'user_id': user.id,
-                    'existing_account_id': existing_account.id,
-                    'number': obj_in.number,
-                    'old_uuid': str(existing_account.uuid)
-                }
+        stage = "validate"
+        timestamp = int(time.time())
+        numbered_name = before is not None or bool(obj_in.number)
+        file_name = (
+            f"{obj_in.number}_{timestamp}.tar.gz" if numbered_name
+            else archive_filename
+        )
+        profile_file_name = None
+        if profile_file:
+            profile_file_name = (
+                f"{obj_in.number}_{timestamp}.txt" if numbered_name
+                else profile_filename
             )
+        account_data = _prepare_upload_data(
+            obj_in,
+            provided_fields=provided_fields,
+            user_id=actor_id,
+            account_uuid=uuid.uuid4(),
+            file_name=file_name,
+            profile_file_name=profile_file_name,
+            is_update=before is not None,
+        )
+        requested = dict(account_data)
+        if before is not None:
+            requested["id"] = before["id"]
 
-            # Сохраняем старые имена файлов для последующего удаления
-            old_file_name = existing_account.file_name
-            old_profile_file_name = existing_account.profile_file_name
+        stage = "write_archive"
+        await _save_upload_file(file, UPLOAD_DIR / file_name)
+        files_written.append("archive")
+        if profile_file is not None and profile_file_name is not None:
+            stage = "write_profile"
+            await _save_upload_file(
+                profile_file, PROFILE_UPLOAD_DIR / profile_file_name
+            )
+            files_written.append("profile")
 
-            # Удаление старого архива с диска (если существует)
-            if old_file_name:
-                old_file_path = UPLOAD_DIR / old_file_name
-                if old_file_path.exists():
-                    try:
-                        old_file_path.unlink()
-                        logger.info(
-                            'Old archive file deleted successfully',
-                            event=E.SYSTEM.API.REQUEST,
-                            extra={
-                                'user_id': user.id,
-                                'file_path': str(old_file_path)
-                            }
-                        )
-                    except Exception as e:
-                        logger.warning(
-                            'Failed to delete old archive file',
-                            event=E.SYSTEM.API.FAILURE,
-                            extra={
-                                'user_id': user.id,
-                                'file_path': str(old_file_path),
-                                'error': {
-                                    'type': type(e).__name__, 'msg': str(e)
-                                }
-                            }
-                        )
-                else:
-                    logger.warning(
-                        'Old archive file not found on disk',
-                        event=E.SYSTEM.API.FAILURE,
-                        extra={
-                            'user_id': user.id,
-                            'file_path': str(old_file_path)
-                        }
-                    )
-
-            # Удаление старого файла профиля с диска (если существует)
-            if old_profile_file_name:
-                old_profile_path = PROFILE_UPLOAD_DIR / old_profile_file_name
-                if old_profile_path.exists():
-                    try:
-                        old_profile_path.unlink()
-                        logger.info(
-                            'Old profile file deleted successfully',
-                            event=E.SYSTEM.API.REQUEST,
-                            extra={
-                                'user_id': user.id,
-                                'file_path': str(old_profile_path)
-                            }
-                        )
-                    except Exception as e:
-                        logger.warning(
-                            'Failed to delete old profile file',
-                            event=E.SYSTEM.API.FAILURE,
-                            extra={
-                                'user_id': user.id,
-                                'file_path': str(old_profile_path),
-                                'error': {
-                                    'type': type(e).__name__, 'msg': str(e)
-                                }
-                            }
-                        )
-                else:
-                    logger.warning(
-                        'Old profile file not found on disk',
-                        event=E.SYSTEM.API.FAILURE,
-                        extra={
-                            'user_id': user.id,
-                            'file_path': str(old_profile_path)
-                        }
-                    )
-
-            # Генерация новых имён файлов
-            timestamp = int(time.time())
-            file_name = f"{obj_in.number}_{timestamp}.tar.gz"
-            file_path = UPLOAD_DIR / file_name
-
-            profile_file_name = None
-            profile_file_path = None
-
-            if profile_file:
-                profile_file_name = f"{obj_in.number}_{timestamp}.txt"
-                profile_file_path = PROFILE_UPLOAD_DIR / profile_file_name
-
-            # Сохранение новых файлов
-            content = await file.read()
-            async with aiofiles.open(file_path, "wb") as f:
-                await f.write(content)
-
-            if profile_file_path:
-                content = await profile_file.read()
-                async with aiofiles.open(profile_file_path, "wb") as f:
-                    await f.write(content)
-
-            # Генерация нового UUID
-            new_uuid = uuid.uuid4()
-
-            # Подготовка данных для обновления (полная перезапись всех полей)
-            account_data = {
-                'uuid': new_uuid,
-                'user_id': user.id,
-                'number': obj_in.number,
-                'type': obj_in.type,
-                'file_name': file_name,
-                'profile_file_name': profile_file_name,
-                'limit': obj_in.limit,
-                'cooldown': obj_in.cooldown,
-                'geo': obj_in.geo,
-                'info_1': obj_in.info_1,
-                'info_2': obj_in.info_2,
-                'info_3': obj_in.info_3,
-                'info_4': obj_in.info_4,
-                'info_5': obj_in.info_5,
-                'info_6': obj_in.info_6,
-                'info_7': obj_in.info_7,
-                'info_8': obj_in.info_8
-            }
-            _apply_upload_hash(account_data, obj_in)
-
-            # Обновление записи в БД
+        stage = "db_write"
+        await session.begin()
+        if before is not None:
             account = await crud.account.update(
                 db=session,
-                db_obj=existing_account,
+                id=before["id"],
                 obj_in=account_data,
-                commit=False
+                commit=False,
+                returning="object",
             )
-
-            await log_service.record(
-                session,
-                event="account.update",
-                source="ext_api",
-                account_id=account.id,
-                user_id=user.id,
-                status=account.status,
-                commit=False
-            )
-
-            await session.commit()
-
-            logger.info(
-                'Account updated successfully',
-                event=E.SYSTEM.API.RESPONSE,
-                extra={
-                    'user_id': user.id,
-                    'account_id': account.id,
-                    'new_uuid': str(account.uuid),
-                    'old_uuid': str(existing_account.uuid),
-                    'file_name': file_name,
-                    'profile_file_name': profile_file_name
-                }
-            )
-
-            return schemas.AccountExternal.model_validate(account)
-
-        # Режим создания: если аккаунт не найден
         else:
-            # Генерация имени файла
-            timestamp = int(time.time())
-            if obj_in.number:
-                file_name = f"{obj_in.number}_{timestamp}.tar.gz"
-            else:
-                file_name = file.filename
-            
-            file_path = UPLOAD_DIR / file_name
-
-            profile_file_name = None
-            profile_file_path = None
-
-            if profile_file:
-                if obj_in.number:
-                    profile_file_name = f"{obj_in.number}_{timestamp}.txt"
-                else:
-                    profile_file_name = profile_file.filename
-
-                profile_file_path = PROFILE_UPLOAD_DIR / profile_file_name
-
-            logger.info(
-                f'Uploading account archive',
-                event=E.SYSTEM.API.REQUEST,
-                extra={
-                    'user_id': user.id,
-                    'file_name': file_name,
-                    'profile_file_name': profile_file_name,
-                    'number': obj_in.number
-                }
-            )
-            
-            # Сохранение файлов
-            content = await file.read()
-            async with aiofiles.open(file_path, "wb") as f:
-                await f.write(content)
-
-            if profile_file_path:
-                content = await profile_file.read()
-                async with aiofiles.open(profile_file_path, "wb") as f:
-                    await f.write(content)
-            
-            # Обновляем данные для создания записи
-            account_data = obj_in.model_dump(
-                exclude_unset=True, exclude={'hash'}
-            )
-            _apply_upload_hash(account_data, obj_in)
-            account_data.update({
-                'uuid': uuid.uuid4(),
-                'user_id': user.id,
-                'file_name': file_name,
-                'profile_file_name': profile_file_name
-            })
-            
-            # Создание записи в БД
             account = await crud.account.create(
-                db=session,
-                obj_in=account_data,
-                commit=False
+                db=session, obj_in=account_data, commit=False,
             )
 
-            await log_service.record(
-                session,
-                event="account.create",
-                source="ext_api",
-                account_id=account.id,
-                user_id=user.id,
-                status=account.status,
-                commit=False
-            )
+        stage = "verify_returning"
+        account_values = vars(account) if account is not None else None
+        returned = _upload_snapshot(account_values)
+        if (
+            account_values is None or account_values.get("id") is None
+            or (before is not None and account_values["id"] != before["id"])
+            or account_values.get("file_name") != file_name
+            or "profile_file_name" not in account_values
+            or account_values.get("profile_file_name") != profile_file_name
+            or account_values.get("user_id") != actor_id
+        ):
+            raise RuntimeError("Account upload RETURNING verification failed")
 
+        stage = "audit"
+        await log_service.record(
+            session,
+            event=f"account.{branch}",
+            source="ext_api",
+            account_id=account_values["id"],
+            user_id=actor_id,
+            status=account_values.get("status"),
+            commit=False,
+        )
+        stage = "prepare_response"
+        response = schemas.AccountExternal.model_validate({
+            **account_values, "user": response_user,
+        })
+        stage = "commit"
+        db_outcome = "unknown"
+        await session.commit()
+        db_outcome = "committed"
+    except (Exception, asyncio.CancelledError) as error:
+        await report_error(error)
+        raise
+
+    stage = "cleanup"
+    for kind, column, directory, profile in (
+        ("archive", "file_name", UPLOAD_DIR, False),
+        ("profile", "profile_file_name", PROFILE_UPLOAD_DIR, True),
+    ):
+        old_name = before.get(column) if before is not None else None
+        if not old_name:
+            continue
+        cleanup = {
+            "kind": kind, "file_name": old_name,
+            "path": directory / old_name, "action": "reference_check",
+        }
+        try:
+            await session.begin()
+            referenced = await crud.account.is_file_referenced(
+                db=session, file_name=old_name, profile=profile,
+            )
             await session.commit()
-            
-            logger.info(
-                'Account archive uploaded successfully',
+            if not referenced:
+                cleanup["action"] = "delete"
+                await asyncio.to_thread(
+                    (directory / old_name).unlink, missing_ok=True,
+                )
+        except (Exception, asyncio.CancelledError) as error:
+            released = await report_error(error, cleanup=cleanup)
+            if isinstance(error, asyncio.CancelledError):
+                raise
+            if not released:
+                break
+
+    if not session_release_failed and not session.in_transaction():
+        stage = "success_log"
+        try:
+            await asyncio.to_thread(
+                logger.info,
+                "Account updated successfully" if before is not None
+                else "Account archive uploaded successfully",
                 event=E.SYSTEM.API.RESPONSE,
                 extra={
-                    'user_id': user.id,
-                    'account_id': account.id,
-                    'account_uuid': str(account.uuid),
-                    'file_name': file_name
-                }
+                    "user_id": actor_id,
+                    "account_id": response.id,
+                    "account_uuid": _safe_upload_value(response.uuid),
+                    "old_uuid": _safe_upload_value(
+                        before.get("uuid") if before is not None else None
+                    ),
+                    "file_name": _safe_upload_value(response.file_name),
+                    "profile_file_name": _safe_upload_value(
+                        response.profile_file_name
+                    ),
+                },
             )
-            
-            return schemas.AccountExternal.model_validate(account)
-        
-    except Exception as e:
-        logger.exception(
-            event=E.SYSTEM.API.ERROR, extra={
-                'user_id': user.id, 'file_name': file.filename,
-                'error': {'type': type(e).__name__, 'msg': str(e)}
-            }
-        )
-        raise e
+        except (Exception, asyncio.CancelledError) as error:
+            await report_error(error)
+            if isinstance(error, asyncio.CancelledError):
+                raise
+    return response
 
 
 @router.post(

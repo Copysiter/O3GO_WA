@@ -31,7 +31,6 @@ class LogCreate(LogBase):
     """Схема для создания записи события."""
     event: str = Field(description="Название события")
     source: str = Field(description="Источник события")
-    account_id: int = Field(description="ID аккаунта")
     status: str | int | None = Field(None, description="Текущий статус")
 
 
