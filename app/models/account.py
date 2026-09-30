@@ -72,7 +72,7 @@ class Account(Base):
         String(256), nullable=True, index=True
     )
     info_3: Mapped[str] = mapped_column(
-        String(256), nullable=True, index=True
+        Text, nullable=True, index=True
     )
     info_4: Mapped[str] = mapped_column(
         String(256), nullable=True, index=True
