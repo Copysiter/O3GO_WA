@@ -2,7 +2,7 @@
 template: structure
 version: 1
 status: complete
-updated: "2026-08-08"
+updated: "2026-10-05"
 required_sections:
   - root
   - codebase
@@ -45,6 +45,7 @@ app/
 │   │   ├── androids.py       Android-устройства
 │   │   ├── versions.py       Версии приложения
 │   │   ├── logs.py           Логи
+│   │   ├── stats.py          Read-only summary/live, JWT и локальный SQL 503
 │   │   ├── options.py        Опции
 │   │   └── base.py           Health-check
 │   └── ext/v1/               Внешнее API (API Key auth)
@@ -56,7 +57,7 @@ app/
 ├── crud/
 │   ├── base.py               Обобщённый CRUD-репозиторий (CRUDBase)
 │   ├── filter/               Механизм фильтрации (fastapi-filter обёртка)
-│   ├── user.py               Репозиторий пользователей
+│   ├── user.py               Репозиторий пользователей и безопасная проекция options
 │   ├── account.py            Репозиторий аккаунтов
 │   ├── session.py            Репозиторий сессий
 │   ├── message.py            Репозиторий сообщений
@@ -71,9 +72,11 @@ app/
 │   ├── android.py            Android (device info, binding)
 │   ├── log.py                Log (event, source, JSONB context)
 │   └── version.py            Version (file tracking)
-├── schemas/                  Pydantic-схемы валидации
+├── schemas/                  Pydantic-схемы валидации, включая DTO stats.py
 ├── services/
 │   ├── log.py                LogService (аудит событий)
+│   ├── session_error.py      SessionErrorAudit (независимый аудит ошибок через LogService)
+│   ├── stats.py              StatsService (период, scope, read-only агрегаты и coverage)
 │   └── message/client.py     MessageService (внешний HTTP-клиент)
 ├── jobs/
 │   ├── scheduler.py          APScheduler конфигурация
@@ -90,6 +93,7 @@ app/
 │   ├── settings/             Конфигурация (5 групп настроек)
 │   ├── logger.py             Структурированное логирование
 │   ├── security.py           Хеширование паролей, JWT
+│   ├── utc.py                Общий RFC 3339 тип для settings и DTO
 │   └── utils.py              Утилиты
 ├── middlewares/              Middleware (логирование)
 └── utils/                    Утилиты (geo, text, test)
@@ -97,19 +101,66 @@ app/
 
 Каждая доменная сущность следует паттерну: модель → схема → CRUD-репозиторий → обработчик(и) API.
 
+Статический дашборд и общие frontend-компоненты:
+
+```
+html/
+├── dashboard/
+│   ├── index.html            Страница: восемь карточек, шесть графиков, фильтры и live
+│   ├── css/style.css         Стили дашборда
+│   └── js/
+│       ├── api.js            DashboardApi: GET stats/options, отмена, проверка и проекция DTO
+│       ├── dashboard.js      Независимые каналы summary/live/users, UTC и lifecycle страницы
+│       └── mock_data.js      DashboardMock, загружается только при ?demo=1
+└── static/
+    ├── auth.js               Синхронные token helpers и защищённый периодический auth probe
+    ├── script.js             Общий header/Drawer, текстовая подпись пользователя и logout
+    └── lib/                  Существующие локальные jQuery, Kendo и остальные UI-библиотеки
+```
+
 ---
 
 ## Структура тестов
 
-Тесты на текущем этапе не реализованы. Зависимости pytest и pytest-asyncio установлены в requirements.txt.
+Тесты используют pytest, pytest-asyncio и локальные FastAPI-приложения с httpx ASGITransport. Агрегаты stats, реальные HTTP-маршруты и независимые транзакции session.error дополнительно проверяются на отдельно заданной PostgreSQL 12; тестовое приложение подключает api_router без app.main/production lifespan.
 
-Ожидаемая структура:
+Основные расположения тестов, включая добавления фаз 1–5 stats:
 ```
 tests/
-├── conftest.py               Корневые фикстуры (db session, test client, auth)
-├── unit/                     Юнит-тесты сервисов и CRUD
-└── integration/              Интеграционные тесты API
+├── test_*.py                            Юнит-тесты сервисов, CRUD и утилит
+├── test_session_error_audit.py           Проверки SessionErrorAudit, отмен и fallback
+├── test_stats_settings.py                Проверки JSON coverage и UTC-валидации settings
+├── shared_auth.test.js                   Фактические auth.js/script.js в Node VM, контракт и гонки
+├── dashboard_api.test.js                 DashboardApi: transport, DTO, scope/period и отмена
+├── dashboard_mock.test.js                Регрессии явного demo-provider
+├── dashboard_api_fixtures.cjs             Независимые wire DTO samples для frontend-проверок
+├── dashboard_browser.cjs                 Внешний Playwright/Chromium, реальные shared scripts и Kendo
+├── api/
+│   ├── v1/                              Проверки административного API
+│   │   ├── test_stats.py                Сохранённые локальные contract-probes фазы 1
+│   │   ├── test_stats_api.py            Реальные stats-маршруты, JWT, scope, SQL 503
+│   │   └── test_user_options.py         Безопасная проекция и область options/user
+│   └── ext/v1/                          Проверки внешнего API
+│       └── test_session_error.py        HTTP-сценарии ошибок и неизменности сессионных операций
+└── integration/
+    ├── conftest.py                      Opt-in PostgreSQL fixtures: rollback и фиксируемая UUID-схема
+    ├── test_stats_fixtures.py           Проверки fixtures ORM-схемы, данных и scope
+    ├── test_stats_aggregates.py         Выполнение summary/live на PostgreSQL
+    ├── test_stats_edges.py              Tenant, DST, global-first, coverage и live
+    ├── test_stats_explain.py            Read-only транзакция и EXPLAIN тестовых данных
+    ├── test_stats_api_postgres.py       Реальные HTTP-маршруты с PostgreSQL
+    ├── test_stats_acceptance.py         Независимые контрольные SQL, метрики/buckets, календарь и роли
+    ├── test_stats_concurrency.py        Конкурентный snapshot, реальные операции и собственные metadata
+    └── test_session_error_transactions.py Проверки независимых соединений, commit, rollback и FK
 ```
+
+В `tests/integration/conftest.py` режим stats откатывает внешнюю транзакцию. Режим `stats_session_factory` фиксирует собственную UUID-схему для настоящих независимых commit и после проверок защиты удаляет только её через `DROP SCHEMA ... CASCADE`; рабочая БД и `public` не удаляются. Эти режимы и conftest на фазе 3 не менялись. Интеграционные файлы `test_stats.py` и `test_stats_api.py` получили имена `test_stats_aggregates.py` и `test_stats_api_postgres.py`, чтобы избежать pytest basename collision с API-тестами; старые contract-probes сохранены.
+
+В фазе 5 добавлены `test_stats_acceptance.py` и `test_stats_concurrency.py`; существующий conftest, guards и фиксируемая UUID-схема повторно использованы без изменений. Первый файл сверяет current/previous, каждый bucket, cohort, доставляемость и live с независимыми SQL и проверяет реальные маршруты через api_router/PostgreSQL. Второй проверяет snapshot одного SELECT через конкурентный commit, прямые start на существующем аккаунте → finish → ban → ban одновременно с обычными stats-чтениями и неизменность каталогов только собственной схемы до/после. Это не сверка production metadata и не нагрузочный HTTP/auth-тест.
+
+JavaScript-проверки используют встроенный Node test runner; shared auth/header исполняются непосредственно из исходных файлов в VM. Browser runner проверяет страницу и login widgets с фактическими библиотеками и HTTP/clock fixtures. Playwright и browser-артефакты размещены вне проекта; точные результаты, команды и пути отчётов ведутся в `plans/261003-dashboard-backend/plan.md`, границы проверки — в `constraints.md`.
+
+Новая локальная приёмка фазы 5 включает Python baseline, новые тесты и совместный запуск по явному списку файлов stats/session.error и смежных регрессий, повторные полные Node/browser-проверки и целевые статические проверки. Это не запуск всех Python-тестов репозитория. Свежие EXPLAIN/browser-артефакты находятся во временном каталоге прогона; сохранённые basename `stats-phase3-explain.json` и `dashboard-phase4-browser-report.json` не обозначают фазу текущего запуска. Архивные результаты фаз 3–4 и новые результаты фазы 5 разграничены в плане.
 
 ---
 
@@ -118,11 +169,13 @@ tests/
 Конфигурация загружается через pydantic-settings из переменных окружения (`.env`). Объединённый класс `GeneralSettings` наследует 5 групп настроек.
 
 Основные группы настроек:
-- Приложение: `PROJECT_NAME`, `PROJECT_HOST`, `PROJECT_PORT`, `API_VERSION`, `BACKEND_CORS_ORIGINS`
+- Приложение: `PROJECT_NAME`, `PROJECT_HOST`, `PROJECT_PORT`, `API_VERSION`, `BACKEND_CORS_ORIGINS`, `STATS_COVERAGE_STARTS`
 - База данных: `POSTGRES_DSN`, `DATABASE_POOL_SIZE`, `DATABASE_MAX_OVERFLOW`, `DATABASE_CREATE_ALL`
 - Безопасность: `SECRET_KEY`, `JWT_ALGORITHM`, `ACCESS_TOKEN_EXPIRE_MINUTES`, `FIRST_SUPERUSER`
 - Логирование: `LOG_NAME`, `LOG_LEVEL`, `LOG_PATH`, `LOG_ROTATION_*`
 - Внешний сервис: `MESSAGE_API_URL`, `MESSAGE_API_TIMEOUT`
+
+`STATS_COVERAGE_STARTS` в `app/core/settings/app_settings.py` — типизированный JSON-словарь четырёх групп с default `{}`, `NoDecode` и явным JSON-разбором; UTCDateTime импортируется из `app/core/utc.py`. Пример пустого объекта добавлен в `.env.example`, рабочая `.env` не менялась. Опциональный `STATS_TEST_EXPLAIN_DIR` используется только тестом EXPLAIN для проверенного временного каталога; по умолчанию артефакт размещается в pytest tmp_path, это не настройка приложения.
 
 ---
 
@@ -131,3 +184,7 @@ tests/
 Начинать с `app/api/v1/` или `app/api/ext/v1/` — найти обработчик нужной доменной области. Из обработчика следовать в CRUD-репозиторий (`app/crud/`) и модель (`app/models/`).
 
 Для понимания модели данных — смотреть `app/models/`. Для понимания контрактов API — смотреть `app/schemas/`. Для понимания конфигурации — смотреть `app/core/settings/`. Для понимания фоновых задач — смотреть `app/jobs/`.
+
+Для дашборда начинать с `html/dashboard/index.html`, затем `js/dashboard.js` и `js/api.js`; общая авторизация и header находятся в `html/static/auth.js` и `html/static/script.js`. `mock_data.js` относится только к явному demo-режиму.
+
+Для статуса приёмки и канонических команд использовать `plans/261003-dashboard-backend/plan.md`. Операторский `plans/261003-dashboard-backend/rollout.md` описывает необходимые metadata, особенности запуска, включение, smoke-проверки и откат; он подготовлен, но не выполнен. Локальная приёмка одобренной фазы 5 завершена, а эксплуатационные пункты остаются открытыми; общая реализация — `in_progress`.

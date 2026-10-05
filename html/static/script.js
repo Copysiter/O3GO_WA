@@ -1,7 +1,19 @@
 $(document).ready(function () {
     kendo.cultures.current.numberFormat[","] = '';
 
+    const dashboardNavigation = `<li>
+    <a href='/dashboard/' data-role='drawer-item' class='${
+        $('body').attr('data-id') == 'dashboard' ? 'k-selected ' : ''
+    }d-flex align-items-center text-decoration-none p-0' id='dashboard-icon' title='Dashboard'>
+    <span><i class='mdi mdi-view-dashboard fs-20'></i></span>
+    <span class='k-item-text flex-grow-1 fs-14 ps-0 pe-20' data-id='dashboard'>Dashboard</span>
+    </a>
+    </li>`;
+    
+    const dashboardNavigation1 ='';
+
     const drawerRootTemplate = `<ul>
+    ${dashboardNavigation1}
     <li>
     <a href='/accounts/' data-role='drawer-item' class='${
         $('body').attr('data-id') == 'accounts' ? 'k-selected ' : ''
@@ -53,6 +65,7 @@ $(document).ready(function () {
     </ul>`;
 
     const drawerUserTemplate = `<ul>
+    ${dashboardNavigation1}
     <li>
     <a href='/accounts/' data-role='drawer-item' class='${
         $('body').attr('data-id') == 'accounts' ? 'k-selected ' : ''
@@ -95,8 +108,9 @@ $(document).ready(function () {
     </li>
     </ul>`;
 
-    if (window.isAuth) {
-        const isAuth = window.getToken();
+    const isAuth = window.getToken();
+    window.isAuth = isAuth;
+    if (isAuth) {
         window.newDate = new Date(isAuth.ts);
         runTime = function () {
             let timer = document.getElementById('timer');
@@ -118,8 +132,8 @@ $(document).ready(function () {
                 drawer.trigger('show');
             }
         };
-        const user = window.isAuth.user.name;
-        const is_superuser = window.isAuth.user.is_superuser;
+        const user = isAuth.user.name || isAuth.user.login || `Пользователь ${isAuth.user.id}`;
+        const is_superuser = isAuth.user.is_superuser;
         var shouldPrevent = false;
         let drawer = $('#drawer')
             .kendoDrawer({
@@ -172,7 +186,7 @@ $(document).ready(function () {
                 },
                 { type: 'spacer' },
                 {
-                    template: `<div id="auth" class="d-flex align-items-center pe-12"><i class="mdi mdi-account-circle fs-20 text-white-50"></i><div class="ms-6 text-nowrap">${window.isAuth.user.name}</div></div>`,
+                    template: '<div id="auth" class="d-flex align-items-center pe-12"><i class="mdi mdi-account-circle fs-20 text-white-50"></i><div class="ms-6 text-nowrap auth-name"></div></div>',
                     overflow: 'never',
                 },
                 {
@@ -187,6 +201,7 @@ $(document).ready(function () {
             ],
         });
 
+        $('#auth .auth-name').text(user);
         runTime(newDate);
     }
 });
@@ -201,7 +216,7 @@ function logout() {
         })
         .data('kendoConfirm')
         .result.done(function () {
-            localStorage.removeItem('token');
+            window.setToken(null);
             document.location.href = document.location.origin + '/auth/';
         })
         .fail(function () {

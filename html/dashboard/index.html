@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="ru">
+    <head>
+        <title>O3GO WA — Dashboard</title>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <link rel="icon" type="image/x-icon" href="/static/favicon.ico" />
+        <link href="/static/lib/bootstrap/css/bootstrap.css" rel="stylesheet" />
+        <link href="/static/lib/kendo/css/base.css" rel="stylesheet" />
+        <link href="/static/lib/kendo/css/kendo.r2.css" rel="stylesheet" />
+        <link href="/static/lib/material/style.css" rel="stylesheet" />
+        <link href="/static/style.css" rel="stylesheet" />
+        <link href="/dashboard/css/style.css" rel="stylesheet" />
+        <script src="/static/lib/jquery.min.js"></script>
+        <script src="/static/lib/kendo/js/kendo.all.min.js"></script>
+        <script src="/static/auth.js"></script>
+        <script src="/static/script.js"></script>
+    </head>
+    <body class="d-flex flex-column dashboard-page" data-id="dashboard">
+        <div id="appbar"></div>
+        <div class="flex-grow-1" id="app-root">
+            <div id="drawer">
+                <div id="dashboard-content">
+                    <main class="dashboard-shell" aria-label="Обзор сервиса">
+                        <section class="dashboard-filters" aria-label="Фильтры дашборда">
+                            <div class="dashboard-filter">
+                                <label for="dashboard-start">Начало периода * · UTC</label>
+                                <input id="dashboard-start" autocomplete="off" required aria-required="true" aria-describedby="dashboard-range-help" />
+                            </div>
+                            <div class="dashboard-filter">
+                                <label for="dashboard-end">Окончание периода · UTC</label>
+                                <input id="dashboard-end" autocomplete="off" placeholder="До текущего момента" aria-describedby="dashboard-range-help" />
+                            </div>
+                            <div id="dashboard-user-filter" class="dashboard-filter" hidden>
+                                <label for="dashboard-user">Пользователь</label>
+                                <input id="dashboard-user" />
+                                <span id="dashboard-options-state" class="dashboard-filter-help" role="status"></span>
+                                <div id="dashboard-options-error" class="dashboard-filter-error" role="alert" hidden>
+                                    <span></span>
+                                    <button id="dashboard-options-retry" type="button">Повторить</button>
+                                </div>
+                            </div>
+                            <div id="dashboard-own-scope" class="dashboard-filter" hidden>
+                                <span class="dashboard-filter-label">Область данных</span>
+                                <span class="dashboard-own-label">Только мои данные</span>
+                            </div>
+                            <div class="dashboard-filter dashboard-filter-action">
+                                <button id="dashboard-apply" type="button">Применить</button>
+                            </div>
+                            <p id="dashboard-range-help" class="dashboard-filter-help">Без окончания — до текущего момента. Максимальный период — один календарный месяц. Окончание не включается в период.</p>
+                        </section>
+                        <div id="dashboard-error" class="dashboard-error" role="alert" hidden></div>
+                        <button id="dashboard-login" type="button" hidden>Войти заново</button>
+                        <noscript>Для просмотра дашборда необходимо включить JavaScript.</noscript>
+
+                        <section id="dashboard-summary" aria-labelledby="dashboard-summary-title" aria-busy="true">
+                            <div class="dashboard-section-heading">
+                                <div>
+                                    <h2 id="dashboard-summary-title">Сводка за период</h2>
+                                    <p id="dashboard-scope"></p>
+                                    <p id="dashboard-summary-state" role="status" aria-live="polite">Загрузка статистики…</p>
+                                </div>
+                                <span id="dashboard-comparison" class="dashboard-period-note"></span>
+                            </div>
+                            <div id="dashboard-coverage" class="dashboard-notice" role="status" hidden></div>
+                            <div id="dashboard-metrics" class="dashboard-metrics"></div>
+                        </section>
+
+                        <section id="dashboard-trends" aria-labelledby="dashboard-trends-title" aria-busy="true">
+                            <div class="dashboard-section-heading">
+                                <h2 id="dashboard-trends-title">Динамика</h2>
+                                <span id="dashboard-range" class="dashboard-period-note"></span>
+                            </div>
+                            <div class="dashboard-panels">
+                                <article class="dashboard-panel">
+                                    <div class="dashboard-panel-heading">
+                                        <div><h3>Жизненный цикл сессий</h3><p>Открытия, завершения и баны за период</p></div>
+                                        <span class="dashboard-panel-icon"><i class="mdi mdi-poll" aria-hidden="true"></i></span>
+                                    </div>
+                                    <div id="dashboard-sessions-chart" class="dashboard-chart" role="img" aria-label="Динамика открытий, завершений и банов сессий"></div>
+                                    <p class="dashboard-panel-footnote" id="dashboard-session-note"></p>
+                                </article>
+                                <article class="dashboard-panel">
+                                    <div class="dashboard-panel-heading">
+                                        <div><h3>Отправка и доставка</h3><p>SENT, DELIVERED, UNDELIVERED и FAILED</p></div>
+                                        <span class="dashboard-panel-icon"><i class="mdi mdi-tooltip-text-outline" aria-hidden="true"></i></span>
+                                    </div>
+                                    <div id="dashboard-messages-chart" class="dashboard-chart" role="img" aria-label="Динамика отправок, доставок, недоставок и ошибок сообщений"></div>
+                                    <p class="dashboard-panel-footnote">Подтверждения и ошибки в интервале. Нажмите на столбец, чтобы увидеть значения.</p>
+                                </article>
+                                <article class="dashboard-panel">
+                                    <div class="dashboard-panel-heading">
+                                        <div><h3>Статусы сообщений</h3><p id="dashboard-status-caption"></p></div>
+                                        <div class="dashboard-delivery">
+                                            <strong id="dashboard-delivery-rate">—</strong>
+                                            <span>доставляемость</span>
+                                        </div>
+                                    </div>
+                                    <div id="dashboard-status-chart" class="dashboard-chart" role="img" aria-label="Распределение сообщений по текущим статусам"></div>
+                                    <p class="dashboard-panel-footnote" id="dashboard-delivery-note"></p>
+                                </article>
+                                <article class="dashboard-panel">
+                                    <div class="dashboard-panel-heading">
+                                        <div><h3>Статистика сессий</h3><p>Открыто, завершено и забанено за выбранный период</p></div>
+                                    </div>
+                                    <div id="dashboard-session-status-chart" class="dashboard-chart" role="img" aria-label="Итоги открытий, завершений и банов сессий"></div>
+                                    <p class="dashboard-panel-footnote">Количество операций за период, не снимок текущих состояний.</p>
+                                </article>
+                                <article class="dashboard-panel">
+                                    <div class="dashboard-panel-heading">
+                                        <div><h3>Сбои загрузки аккаунтов</h3><p>account.error</p></div>
+                                    </div>
+                                    <div id="dashboard-account-errors-chart" class="dashboard-chart" role="img" aria-label="Динамика account.error"></div>
+                                    <p class="dashboard-panel-footnote">Сбой загрузки может быть зарегистрирован после успешного сохранения аккаунта.</p>
+                                </article>
+                                <article class="dashboard-panel">
+                                    <div class="dashboard-panel-heading">
+                                        <div><h3>Сбои операций сессий</h3><p>session.error</p></div>
+                                    </div>
+                                    <div id="dashboard-session-errors-chart" class="dashboard-chart" role="img" aria-label="Динамика session.error"></div>
+                                    <p class="dashboard-panel-footnote">Сбои старта, завершения и бана сессии, зарегистрированные сервисом.</p>
+                                </article>
+                            </div>
+                        </section>
+
+                        <section id="dashboard-live" class="dashboard-live" aria-label="Текущее состояние аккаунтов" aria-busy="true">
+                            <div class="dashboard-live-heading"><span class="dashboard-live-dot"></span><strong>Сейчас</strong><span id="dashboard-live-scope">Текущая область данных</span><span id="dashboard-live-updated" role="status" aria-live="polite">Загрузка…</span></div>
+                            <div><strong id="dashboard-live-available">—</strong><span>Готовы к выдаче</span></div>
+                            <div><strong id="dashboard-live-active">—</strong><span>Активные аккаунты</span></div>
+                            <div><strong id="dashboard-live-paused">—</strong><span>В cooldown</span></div>
+                            <div><strong id="dashboard-live-banned">—</strong><span>Забанены сейчас</span></div>
+                            <div id="dashboard-live-error" class="dashboard-error" role="alert" hidden>
+                                <span></span>
+                                <button id="dashboard-live-retry" type="button">Повторить</button>
+                            </div>
+                        </section>
+
+                        <footer class="dashboard-footer">O3GO WA · <span id="dashboard-source">Статистика сервиса · UTC</span></footer>
+                    </main>
+                </div>
+            </div>
+        </div>
+        <div id="dashboard-details"></div>
+        <div id="confirm-logout"></div>
+        <script src="/dashboard/js/api.js"></script>
+        <script src="/dashboard/js/dashboard.js"></script>
+    </body>
+</html>

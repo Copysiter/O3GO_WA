@@ -2,7 +2,7 @@
 template: stack
 version: 1
 status: complete
-updated: "2026-08-08"
+updated: "2026-10-05"
 required_sections:
   - runtime
   - frameworks
@@ -21,6 +21,8 @@ optional_sections:
 
 Python 3.11 с полной поддержкой async/await.
 
+Статический административный frontend использует JavaScript в браузере; дашборд подключается обычными scripts без отдельной сборки.
+
 ---
 
 ## Основные фреймворки
@@ -32,6 +34,8 @@ Pydantic 2 — валидация входных и выходных данны�
 fastapi-filter — продвинутая фильтрация API-запросов с поддержкой операторов (eq, ne, in, like, ilike, gt, gte, lt, lte), сортировки и вложенных фильтров.
 
 APScheduler — планировщик фоновых задач с поддержкой асинхронного выполнения и декораторной регистрации.
+
+jQuery 1.12.4 и Kendo UI 2022.2.510 — существующие локальные библиотеки в `html/static/lib/`. Дашборд использует их AJAX, DateTimePicker, DropDownList, Chart и Window; общие header/навигация/logout — ToolBar, Drawer и Confirm. Новые frontend-пакеты в фазе 4 не добавлялись.
 
 ---
 
@@ -55,13 +59,15 @@ HTTP (асинхронный) — взаимодействие с внешним
 
 ## Аутентификация и безопасность
 
-JWT (python-jose, HS256) — аутентификация административного API. Access token (10 дней) передаётся в заголовке Authorization, refresh token (30 дней) — в HTTP-only cookie.
+JWT (python-jose, HS256) — аутентификация административного API. Access token (10 дней) передаётся в заголовке Authorization, refresh token (30 дней) — в cookie `refresh-token`.
 
 API Key — аутентификация внешнего API. Ключ хранится в модели User (`ext_api_key`), передаётся в заголовке `X-Api-Key` или query-параметре `x_api_key`.
 
 HTTP Basic — опциональная аутентификация через логин/пароль, доступна через зависимость `get_basic_auth_user`.
 
 passlib + bcrypt — хеширование паролей пользователей.
+
+Общий frontend (`html/static/auth.js`) хранит в localStorage token с полями `access_token`, `token_type`, `ts`, `user` и предоставляет синхронные helpers/`window.isAuth`. Исправленная проверка входа читает свежий storage, защищает обе ветки ответа от гонок и различает окончательный auth-отказ и временный сбой. `html/static/script.js` выводит имя пользователя как текст внутри статической разметки Kendo. Backend авторизации и его контракт в фазе 4 не менялись; детали совместимости приведены в `architecture.md` и `constraints.md`.
 
 ---
 
@@ -71,7 +77,17 @@ pytest — основной тестовый фреймворк (зависим�
 
 pytest-asyncio — поддержка асинхронных тестов.
 
-Тесты на текущем этапе не реализованы.
+В `tests/` имеются юнит-тесты и HTTP-проверки с httpx ASGITransport. Stats summary/live, реальные зарегистрированные маршруты, options и аудит session.error проверяются также на изолированной PostgreSQL 12 с явным тестовым DSN. Прежние локальные contract-probes фазы 1 сохранены отдельно; новые HTTP-проверки подключают api_router без app.main/production lifespan. Fixtures поддерживают два режима: внешнюю транзакцию с rollback и фиксируемую UUID-схему для реальных независимых соединений и commit, с защищённым удалением только этой схемы после теста; conftest на фазе 3 не менялся.
+
+Read-only характер агрегатов проверяется через `SET TRANSACTION READ ONLY`, перехват SQL и commit; планы фактических scoped/admin-all SELECT сняты через `EXPLAIN (ANALYZE, BUFFERS)` после ANALYZE только тестовых таблиц. Исторические результаты pytest и EXPLAIN приведены в `plans/261003-dashboard-backend/plan.md`; итоговые flake8/mypy фазы 3 после последних изменений прошли. Проверки подтверждают код stats API, но не состояние рабочей БД, production SLA, deployment или фактическое начало production coverage.
+
+В явно одобренной фазе 5 новая локальная приёмка выполнена на изолированной PostgreSQL 12.22. Добавлены независимые SQL-контроли всех метрик, периодов, cohort/доставляемости/live и календарные HTTP-проверки через реальный api_router. Конкурентные тесты используют существующую фиксируемую UUID-схему без изменения conftest: тестовая advisory CTE с типизированными binds оборачивает неизменённый service SELECT, а `pg_locks` подтверждает ожидание через реальный commit; следующий SELECT без обёртки видит новые данные в той же READ COMMITTED-транзакции. Отдельно прямые реальные сессионные обработчики проверяются одновременно с обычными stats-чтениями, а каталоги собственной схемы сравниваются до/после. Границы этих проверок описаны в `constraints.md`.
+
+Заново прошли Python baseline, новые приёмочные тесты и их совместный запуск по явно перечисленным файлам stats/session.error и смежных регрессий. Это целевая выборка, а не весь Python-репозиторий. Также прошли целевые flake8 и mypy; точные файлы, параметры ограниченной проверки импортов, количества и команды приведены в плане. EXPLAIN повторён на прежнем синтетическом наборе с ANALYZE только тестовых таблиц; репрезентативность production-объёма и критерии стоимости остаются открытыми, сопоставимый performance benchmark не заявляется.
+
+Встроенный Node test runner проверяет `DashboardApi`, demo-provider и фактические shared auth/header scripts в VM; `node --check` используется для синтаксиса. `tests/dashboard_api_fixtures.cjs` предоставляет независимые wire DTO samples, ранее проверенные действующими Pydantic DTO. При завершении общих auth/header-исправлений фазы 4 новый Python suite не запускался; описанный выше новый запуск относится к фазе 5. Полные Node-регрессии и `node --check` в фазе 5 повторно прошли.
+
+`tests/dashboard_browser.cjs` запускается через внешний Playwright в Chromium с реальными jQuery/Kendo, HTML и scripts, HTTP/clock fixtures и блокировкой неожиданной сети. Browser runner и проверяемые временные артефакты не требуют установки зависимостей в проект. Полный browser-прогон фазы 5 прошёл на том же комплекте Chromium/jQuery/Kendo; канонические количества и подробные результаты фаз 4–5 находятся в плане, ограничения browser-покрытия — в `constraints.md`.
 
 ---
 
@@ -84,6 +100,8 @@ Uvicorn — ASGI-сервер для запуска FastAPI-приложения
 orjson — высокопроизводительная сериализация JSON (default_response_class).
 
 pylint, flake8, mypy — статический анализ и линтинг кода.
+
+В фазе 5 runtime-код, настройки БД, рабочая `.env`, миграции, индексы и coverage-даты не менялись; `STATS_COVERAGE_STARTS={}` сохраняет неизвестный охват. `plans/261003-dashboard-backend/rollout.md` подготовлен как операторский runbook с фактическими особенностями startup, scheduler, маршрутов stats и bind mounts, но не выполнен. Deployment требует отдельно подтверждённых окружения, релиза/отката и coverage всех обслуживающих workers; общая реализация остаётся `in_progress` при завершённой локальной приёмке.
 
 ---
 

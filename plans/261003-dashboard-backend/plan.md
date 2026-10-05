@@ -1,0 +1,783 @@
+---
+template: task
+version: 1
+status: complete
+implementation_status: in_progress
+updated: "2026-10-05"
+required_sections:
+  - summary
+  - goal
+  - requirements
+  - scope
+  - phases
+  - checks
+---
+
+# Stats: read-only API статистики, семантика метрик и SQL
+
+## Описание
+
+Подключить существующий дашборд к PostgreSQL через backend-компонент `stats` с двумя JWT-эндпоинтами: отчёт выбранного периода и независимый текущий срез аккаунтов. Расчёты реализованы в `StatsService` (`app/services/stats.py`) по существующим таблицам; отдельные ORM-сущность, пакет запросов, CRUD статистики, аналитическое хранилище и backend для удалённой из прототипа таблицы не требуются. Фаза 1 завершена по уточнённому объёму; перенесённая проверка рабочей БД остаётся открытой в фазе 3. Кодовая часть фазы 2 проверена, но начало production-учёта `session.error` ожидает подтверждения оператором после rollout. Код фазы 3 готов (`code_ready`), фаза 4 завершена в коде и локальной верификации после одобренных общих auth/header-исправлений. Пользователь подтвердил фазу 5; локальная приёмка завершена: 501 целевая Python-проверка, 156 Node-тестов и 112 browser-сценариев прошли. Первые два пункта фазы 5 выполнены, третий выполнен частично; согласованные рабочие объёмы/стоимость, metadata и rollout остаются открытыми. Deployment не выполнялся. `status: complete` означает завершённость документа, а `implementation_status: in_progress` — состояние всего плана с незакрытыми операционными условиями.
+
+## Цель
+
+Получать согласованные карточки и шесть графиков за интервал не более календарного месяца, ограничивая обычного пользователя его данными, а администратора — выбранным пользователем либо всем сервисом. Блок «Сейчас» должен обновляться независимо от периода, а отсутствие достоверного учёта не должно превращаться в нулевые показатели.
+
+## Контекст
+
+Первоначальный прототип использовал `DashboardMock`, полуоткрытый UTC-интервал, автоматический выбор часовой/дневной детализации и сравнение с непосредственно предшествующим интервалом той же длительности. На фазе 4 обычный режим переключён на API; mock загружается только при явном `?demo=1`. Пользователь выбрал имя backend-компонента `stats`, запретил изменение схемы `log` и разрешил исходить из отсутствия последовательных переходов на одинаковый статус. При этом текущий код технически допускает такие повторы, а `message.sent_at` заполняется при создании сообщения. Аудит `session.error` реализован на фазе 2; дата начала его production-учёта неизвестна. Следовательно, отсутствие одинаковых переходов подряд является согласованным допущением о входных данных, а не гарантией, которую эта задача добавляет в обработчики.
+
+### Согласованные границы решения
+
+- Backend называется `stats`; frontend-каталог `html/dashboard/`, имя демонстрационного `DashboardMock` и путь этого плана сохраняются, поскольку экран и backend-компонент — разные понятия.
+- Пользователь согласовал `StatsService` в `app/services/stats.py` и узкое исключение из правила размещения SQL в CRUD: только read-only аналитические SELECT внутри этого сервиса, без мутаций и commit. Проверка выбранного пользователя использует существующий CRUD пользователя.
+- Схема `log` не меняется: не добавляются колонки, ограничения, новые индексы или миграции журнала. В рабочей БД первой версии stats не планируются DDL и миграции. Тестовые таблицы из существующих ORM-моделей создаются только в изолированной схеме `stats_test_<uuid>`: fixtures фазы 1 используют внешнюю транзакцию с rollback, а проверки независимых транзакций фазы 2 — фиксируемую схему с удалением только собственного UUID-пространства после проверок защиты.
+- Для обычных статусных событий не требуются новые `audit_version`, `previous_status` или `status_changed`. Переходы считаются по существующим `event`, `status` и `created_at` при принятом допущении.
+- Идемпотентность, блокировки, расход attempts, правила переходов и существующие jobs не перерабатываются ради статистики. На фазе 2 добавлен только ранее запрошенный аудит `session.error` в существующую структуру журнала; побочный эффект повторного ban с повторным расходом attempts сохраняется и не входит в scope исправлений.
+- Отсутствие одинаковых статусов подряд не означает один сбой на операцию и не исключает возврат к статусу через другой статус. Поэтому группировка ошибок по operation_id и поиск первых подтверждений сообщений сохраняются.
+
+### Проверенные основания
+
+| Факт | Подтверждение в исходниках |
+|---|---|
+| Дашборд принимает обязательное начало, необязательное окончание, предел в календарный месяц и отдельный live-запрос. | `html/dashboard/js/api.js` — validateRange; `html/dashboard/js/dashboard.js` — refresh/refreshLive. |
+| Повторные finish/ban повторяют аудит; ban также повторно уменьшает attempts. | `app/api/ext/v1/session.py:74–145`. |
+| Первый старт создаёт ACTIVE-сессию, новый старт также завершает старые сессии. | `app/api/ext/v1/session.py:209–333`. |
+| Ошибки start/finish/ban передаются в SessionErrorAudit; независимая запись разрешена только после подтверждённого освобождения основной транзакции. | `app/api/ext/v1/session.py:343–345,406–408,469–471`, `app/services/session_error.py:68–81,121–162`, `app/services/log.py:98–125`. |
+| Callback сообщения допускает повторные и обратные статусы; sent_at не обновляет. | `app/api/ext/v1/message.py:131–159`, `app/models/message.py:34–50`. |
+| account.error содержит operation_id и может означать сбой после успешного commit/HTTP 201. | `app/api/ext/v1/account.py:515–610,735–798`. |
+| LogService нормализует log.status в lowercase; предыдущий статус сейчас не сохраняется. | `app/services/log.py:16–139`. |
+| Логи могут каскадно удаляться вместе с сущностями. | `app/models/log.py:17–31`. |
+| Ошибка области options/user исправлена: member ограничен собственным User.id, а SQL выбирает только публичные text/value. | `app/api/v1/options.py:46–57`, `app/crud/user.py:22–37`. |
+| Выдача аккаунта учитывает статус, cooldown и ненулевой file_name либо hash. | `app/api/ext/v1/account.py:55–86`. |
+| Summary/live выполняют по одному аналитическому CTE SELECT; error_first использует группирующий JOIN с явными фильтрами event/source и владельца. | `app/services/stats.py:88–342,470–510`. |
+| Реальные stats-маршруты зарегистрированы в api_router; локальный _StatsRoute обрабатывает SQLAlchemyError также из auth-зависимостей. | `app/api/v1/__init__.py:41–43`, `app/api/v1/stats.py:49–125`. |
+| Coverage имеет типизированный JSON-контракт с общим UTCDateTime для settings и DTO. | `app/core/settings/app_settings.py:9–12,53–65`, `app/core/utc.py`, `app/schemas/stats.py:16,146–158`. |
+
+Рабочая БД, применённые миграции, существующие индексы, объёмы таблиц и фактическая дата начала учёта не проверялись; доступ к рабочей БД не предоставлен и не использовался. Изолированная PostgreSQL 12 подтверждает fixtures существующих ORM-моделей, независимые транзакции аудита `session.error`, выполнение агрегатов и реальных HTTP-маршрутов. Q1/Q2 ниже служат читаемыми SQL-образцами реализованных запросов; фактические statements `StatsService` проверены в read-only транзакции и через EXPLAIN после ANALYZE только тестовых таблиц. В фазе 5 добавлены независимые контрольные SQL и конкурентные проверки snapshot/сессионных операций; их границы описаны в результатах фазы. Это не подтверждает production metadata, rollout или стоимость запросов на рабочих объёмах.
+
+## Требования
+
+### Функциональные требования
+
+1. **FR-01.** Оба новых эндпоинта используют `get_current_active_user`. Обычный пользователь получает только собственную область; попытка передать чужой `user_id` отклоняется с 403. Администратор получает все данные либо данные выбранного пользователя.
+2. **FR-02.** Отчёт принимает обязательный `start_at` и необязательный `end_at`; отсутствие конца означает серверное текущее время, зафиксированное один раз на запрос. В интерфейсе начало по умолчанию — сегодня в 00:00 UTC, окончание пустое. Все входные и выходные timestamps нормализуются в UTC; входные значения должны содержать timezone.
+3. **FR-03.** Интервал имеет вид `[start_at, effective_end_at)`, не содержит будущего и не превышает один календарный месяц от начала с ограничением дня последним днём следующего месяца. Равные границы разрешены и дают пустой ряд и нулевые счётчики.
+4. **FR-04.** При длительности до 24 часов включительно возвращаются часовые buckets, при большей длительности — дневные. Крайние buckets учитываются только на пересечении с диапазоном; для пустых, но наблюдаемых интервалов возвращаются нули, будущие buckets не добавляются.
+5. **FR-05.** Один ответ отчёта содержит текущие показатели периода, сравнение, временные ряды, четыре текущих статуса сообщений выбранной группы и три итоговых показателя операций сессий. Все части читаются из одного snapshot БД.
+6. **FR-06.** При согласованном отсутствии одинаковых статусных переходов подряд завершения и баны сессий считаются по `session.status`, а баны аккаунтов — по `account.status` с нужным status. События `*.update` не считаются переходами; баны сессий и аккаунтов не отождествляются. Дедупликация этих переходов, изменение бизнес-обработчиков и повторного расхода attempts в задачу stats не входят.
+7. **FR-07.** Подтверждения сообщений учитываются один раз на сообщение для каждого определённого ниже milestone. Текущие статусы сообщений, созданных за период, считаются отдельным запросным срезом, а не вычитанием событийных счётчиков.
+8. **FR-08.** Сбои account/session считаются как различные операции по `operation_id`, по времени первого сохранённого сбоя операции. Добавляется независимый аудит `session.error` для прикладной обработки start/finish/ban; ошибка аудита не маскирует первичную ошибку.
+9. **FR-09.** Live-эндпоинт не принимает период и считает актуальные аккаунты: кандидаты к выдаче, ACTIVE, cooldown и BANNED. Без payload аккаунт не считается готовым к выдаче, но может учитываться в ACTIVE/BANNED либо в cooldown, если действительно удовлетворяет соответствующему условию. Физический PAUSED и AVAILABLE без payload после окончания cooldown входят в диагностический остаток other.
+10. **FR-10.** Ответ сообщает охват и качество учёта. Для периодов, когда нужные события не собирались либо начало учёта неизвестно, возвращаются `null` и причина, а не ложные нули. Отсутствие новых метаданных перехода в старых строках не является пробелом: они не требуются выбранным решением.
+
+### Нефункциональные требования
+
+1. Сохранить FastAPI, async SQLAlchemy и PostgreSQL 12. Аналитические SELECT размещаются только в `StatsService` (`app/services/stats.py`), не в отдельном пакете запросов, CRUD статистики или API-обработчиках; новые зависимости, Redis, очередь и materialized views на первом этапе не добавляются.
+2. Использовать bind-параметры и серверную область доступа; `scope_user_id=NULL` может назначить только сервер для администратора. Ответы не содержат API-ключи, hash, номера получателей, тексты сообщений, трассировки и полный JSON контекста.
+3. Отчёт читает данные без `FOR UPDATE`; его части собираются одним SQL statement. `StatsService` допускает только чтение, не изменяет ORM-сущности и не делает commit; существующие бизнес-транзакции и нормальный аудит сохраняются. Отдельную записывающую транзакцию для `session.error` инициирует `SessionErrorAudit` вне `StatsService` через существующий механизм LogService, без прямого SQL в helper.
+4. Передавать агрегаты: не более 32 дневных либо 25 часовых buckets на период. Проверить `EXPLAIN (ANALYZE, BUFFERS)` на изолированном репрезентативном наборе; численный SLA согласовать после замера объёмов, не обещать его по исходникам.
+5. Внешние URL и схемы ответов не удаляются и не переименовываются. Схема log и правила существующих бизнес-переходов не меняются; регрессионные тесты подтверждают, что добавление session.error не подменяет результат операции или первичную ошибку.
+
+## Технические детали реализации
+
+Компонент `stats` является read model, а не самостоятельной изменяемой сущностью. API использует существующую auth-зависимость и Pydantic query DTO, делегирует разрешение периода, области данных, расчёт агрегатов и coverage `StatsService`, затем сериализует ответ. Реализованы `get_summary` и `get_live`, каждый с одним аналитическим CTE SELECT; запросы аутентификации и проверки выбранного владельца выполняются отдельно. Браузер использует `DashboardApi` для stats/options; `DashboardMock` сохранён только в явном демонстрационном режиме без fallback. Дополнительные Repository и CRUDBase статистики не нужны. Исторический отчёт и live разделены из-за разных интервалов обновления; доменные данные и их история следуют за текущим владельцем сущности, а неизменяемая история и сохранение статистики после удаления остаются отдельным расширением.
+
+| Компонент по роли | Размещение | Ответственность и состояние |
+|---|---|---|
+| API статистики | `app/api/v1/stats.py` | Реализованы summary/live с JWT, query DTO и вызовами StatsService; локальный _StatsRoute возвращает безопасный 503 при SQLAlchemyError. |
+| Контракты статистики | `app/schemas/stats.py` | Созданы DTO параметров и ответов, включая `StatsSummary` и `StatsLive`. |
+| Read-only сервис статистики | `app/services/stats.py` | Реализованы resolve_period/resolve_scope, Q1/Q2, сборка DTO, coverage и NULL-маскирование без create/update/delete и commit. |
+| Общая UTC-валидация и coverage settings | `app/core/utc.py`, `app/core/settings/app_settings.py` | Общий RFC 3339 тип UTCDateTime используется settings и схемами без импорта верхних слоёв в core; STATS_COVERAGE_STARTS типизирована и по умолчанию равна `{}`. |
+| Аудит ошибок сессионных операций | `app/services/session_error.py` | Реализован `SessionErrorAudit`: безопасный контекст, освобождение бизнес-транзакции, независимая запись через LogService и диагностика отказов; прямого SQL и записи через StatsService нет. |
+
+Согласованный поток зависимостей: API stats → `StatsService` → существующий CRUD пользователя для scope / SQLAlchemy и адаптер PostgreSQL для агрегатов. `resolve_scope` уже использует `UserCRUD.get` при выборе пользователя администратором. Сервис не импортирует API, не наследует CRUDBase и не владеет бизнес-мутациями. Пользователь одобрил узкое архитектурное исключение: аналитические SELECT разрешены только внутри `StatsService`, без commit, записывающих SQL и изменений ORM-сущностей. Это правило зафиксировано в `.opencode/project/{architecture,conventions,constraints}.md` и не расширяет SQL-полномочия остальных сервисов.
+
+### 1. Эндпоинты
+
+Ниже приведён реализованный HTTP-контракт: summary/live зарегистрированы через `api_router` в `app/api/v1/__init__.py`. Код маршрутов готов, deployment не выполнялся. Сохранённые проверки фазы 1 используют только локальные `/_stats_contract/summary` и `/_stats_contract/live`; новые проверки реальных маршрутов находятся отдельно в `tests/api/v1/test_stats_api.py` и `tests/integration/test_stats_api_postgres.py`.
+
+| Метод и URL | Параметры | Назначение |
+|---|---|---|
+| `GET /api/v1/stats/summary` | `start_at`, необязательные `end_at`, `user_id`. | Восемь карточек, четыре временных графика, два горизонтальных графика, сравнение и доставляемость. |
+| `GET /api/v1/stats/live` | Необязательный `user_id`. | Независимый блок «Сейчас»; frontend обновляет его раз в 60 секунд и при ручном обновлении/смене владельца. |
+| Существующий `GET /api/v1/options/user` | Без новых обязательных параметров. | Список для административного DropDownList; обычному пользователю сервер возвращает только его самого. |
+
+Отдельные эндпоинты для каждого графика, ошибок-детализаций, произвольной SQL-группировки и таблицы пользователей не нужны. Сводка уже содержит значения для модальных графиков карточек; дополнительный запрос при клике не требуется.
+
+Пример запроса:
+
+```http
+GET /api/v1/stats/summary?start_at=2026-09-10T00:00:00Z&end_at=2026-10-01T00:00:00Z&user_id=42
+Authorization: Bearer <token>
+```
+
+Строковые timestamps принимаются в строгом формате RFC 3339 с timezone и переводятся в UTC. Naive timestamp, пустой `start_at`, пустая строка/буквальное `null` в `end_at`, дата раньше 1900-01-01 UTC, неизвестный query-параметр, `user_id` вне целочисленного диапазона `1..2147483647`, обратный, будущий или слишком длинный диапазон дают 422; отсутствие конца задаётся отсутствием query-параметра. Оба маршрута используют `get_current_active_user`: сохранены 401 при отсутствии токена, 403 при невалидном JWT и 400 для неактивного пользователя. Администратор при выборе несуществующего пользователя получает 404; member с чужим ID получает 403 без проверки существования этого ID. Типизированные ошибки сервиса отображаются в HTTP-коды (`StatsPeriodError` → 422, `StatsScopeDeniedError` → 403, `StatsUserNotFoundError` → 404); контракт подтверждён проверками зарегистрированных маршрутов.
+
+Локальный `_StatsRoute` перехватывает `SQLAlchemyError` из агрегатов, проверки владельца и auth-зависимостей и возвращает общий 503 `Statistics are temporarily unavailable`. Это граница только stats-маршрутов, без глобального middleware и изменения обработки ошибок остальных маршрутов. Диагностика выполняется через `asyncio.to_thread`: logger получает только action и тип ошибки, без её сообщения, SQL, параметров и traceback; stderr вызывается независимо от успешного возврата logger, в том числе при подавлении I/O-ошибки его handler. Отказы каналов отмечаются безопасными notes в создаваемом HTTPException, включая одновременный отказ обоих; ответ 503 сохраняется, отказ БД не превращается в нулевую статистику.
+
+#### Контракт summary
+
+HTTP-поля следуют snake_case проекта; `html/dashboard/js/api.js` преобразует их в camelCase-поля виджетов без пересчёта серверных метрик и без замены NULL нулями.
+
+Адаптер преобразует `scope.label` в `scopeLabel`, присоединяет локализованные `label` к status-элементам и формирует UTC-подписи buckets. Публичные options `text/value` отображаются в существующий формат DropDownList `name/id`; новый серверный DTO пользователя не создаётся. При сборке ответа сервер разбирает и сериализует в UTC все timestamps, включая вложенные JSON `key/from_at/to_at` и generated_at: `to_jsonb(timestamptz)` сам по себе использует timezone соединения, а текущий frontend читает компоненты ISO-строк срезами.
+
+- `start_at`, `end_at`, `effective_end_at`: нормализованные границы; `end_at=null` сохраняет факт открытого конца.
+- `generated_at`: `statement_timestamp()` читающего SQL, то есть время текущего snapshot, не конец исторического периода.
+- `scope`: `{user_id, mode, label}`, где mode — `all` либо `user`; label формируется без раскрытия секретов.
+- `granularity`: `hour` либо `day`, определяется сервером.
+- `totals`, `previous`: двенадцать полей из таблицы метрик ниже; значения — неотрицательный integer либо `null`, если учёт неизвестен.
+- `comparison`: `{start_at, end_at}` непосредственно предшествующего диапазона той же длительности.
+- `trend`: точки `{key, from_at, to_at, ...метрики}`. `key` — начало выровненного UTC-bucket, `from_at/to_at` — фактическое пересечение. Подписи формирует UI.
+- `statuses`: элементы `{status, value}` только для `sent`, `delivered`, `undelivered`, `failed`.
+- `message_cohort`: `total`, `created`, `waiting`, `unknown_status`; позволяет не выдавать сумму четырёх показанных статусов за все сообщения.
+- `session_statuses`: `{status: opened|finished|banned, value}`, собранные из `totals`, а не отдельного SQL.
+- `delivery`: `{delivered, terminal, rate}` для группы сообщений, созданных в периоде; rate — проценты с округлением до двух знаков, `null` при terminal=0.
+- `coverage`: сведения о времени включения и качестве учёта по группам метрик и обоим сравниваемым периодам.
+
+Массив `users` и объект `live` в summary не дублируются. `totals` и `previous` вычисляются сервером из тех же counters, что формируют графики. Нельзя вычислять итоговые метрики либо права доступа в браузере.
+
+#### Контракт live
+
+```json
+{
+  "as_of": "2026-10-03T12:00:00Z",
+  "scope": {"user_id": 42, "mode": "user", "label": "Пользователь 42"},
+  "available": 120,
+  "active": 35,
+  "paused": 8,
+  "banned": 6,
+  "total": 175,
+  "other": 6
+}
+```
+
+Числа в примере условные. `other` — диагностический остаток, а не новая обязательная карточка. Все четыре основные величины относятся к аккаунтам, не к количеству сессий.
+
+### 2. Определения метрик
+
+| Поле API | Правило подсчёта |
+|---|---|
+| `opened` | События `session.create` с `status=active`. Ручное создание уже FINISHED-сессии не считается открытием; повторная активация существующей строки не является созданием новой сессии. |
+| `finished` | Записи `session.status` с `status=finished`, интерпретируемые как переходы при допущении FR-06. Включаются finish, завершение старой сессии новым start и scheduler. |
+| `session_bans` | Записи `session.status` с `status=banned` при допущении FR-06. Каждая такая запись считается отдельным переходом. |
+| `account_bans` | Записи `account.status` с `status=banned` при допущении FR-06. Первоначальное создание забаненного аккаунта и обычный `account.update` не считаются операцией бана. |
+| `sent` | Первое сохранённое свидетельство статуса SENT, DELIVERED или UNDELIVERED для каждого локального сообщения, найденное по всей сохранённой истории. Это подтверждение в локальном учёте, не достоверное время отправки на устройстве. |
+| `delivered` | Первое сохранённое свидетельство DELIVERED на сообщение. |
+| `undelivered` | Первое сохранённое свидетельство UNDELIVERED на сообщение. |
+| `failed` | Первое сохранённое свидетельство FAILED на сообщение. |
+| `account_errors` | Различные операции upload с `account.error`, по времени первого сохранённого сбоя операции. Несколько стадий ошибки одного запроса считаются один раз. |
+| `session_errors` | Различные операции start/finish/ban с `session.error`, по времени первого сохранённого сбоя операции. |
+| `auto_finished` | Подмножество `finished` с `source=scheduler`. В интерфейсе уточнить подпись «Завершено планировщиком», а не смешивать с вытеснением старой сессии новым start. |
+| `message_created` | Количество сохранившихся строк message с created_at в диапазоне, независимо от их текущего статуса. |
+
+Сессия может иметь и завершение, и бан за период; эти счётчики являются операциями, а не непересекающимися состояниями. Аналогично, одно сообщение может сначала получить FAILED, а затем DELIVERED: соответствующие первые свидетельства учитываются отдельно. Не применять к реальным данным моковые инварианты `account_bans <= session_bans` для всех источников и `sent = statuses.sent + statuses.delivered + statuses.undelivered` внутри произвольного периода: административный бан и поздние статусы нарушают эти равенства законным образом.
+
+**Статусная группа сообщений** задаётся `message.created_at` в выбранном интервале, после чего читается текущий `message.status`. Текущий SENT этой группы не равен `totals.sent`, который задан временем первого подтверждения. Доставляемость считается только внутри этой группы:
+
+`DELIVERED / (DELIVERED + UNDELIVERED + FAILED) * 100`.
+
+Существующий `message.sent_at` для этой аналитики не используется. Временные графики не делятся друг на друга для получения доставляемости: доставка в выбранном периоде могла относиться к отправке в другом периоде.
+
+### 3. Область данных и история
+
+1. `scope_user_id` вычисляется сервером. Member получает собственный ID, admin без фильтра — NULL, admin с фильтром — проверенный ID. Значение NULL не означает обход авторизации самим клиентом.
+2. Аккаунты ограничиваются через `account.user_id`, сессии — через актуальный `session.account_id`, сообщения — через актуальные связи message → session → account. Для событий сессии/сообщения используются эти связи, а не `log.user_id` и не потенциально устаревший `log.account_id`.
+3. Для `account.error`/`session.error` универсального внешнего API областью является аутентифицированный вызывающий пользователь, то есть `log.user_id`: до создания сущности и при отказе в доступе другого владельца может не быть. Это специальное правило только для этих событий с `source=ext_api`, не универсальный фильтр всех логов.
+4. Ошибку попытки обратиться к чужой сессии записывать без FK на чужие сущности и без их приватных данных; она относится к операции вызывающего пользователя. Ошибки до установления пользователя не входят в эти tenant-метрики.
+5. Изменение владельца или связей переносит сохранённую доменную историю в текущую область нового владельца. Удаление сущностей может удалить строки и аудит. Для первой версии это честно заявленная аналитика **сохранившихся данных**, не неизменяемая бухгалтерская история.
+
+### 4. Использование аудита без изменения схемы log
+
+Для обычных операций читаются существующие поля event/status/created_at и связи с сущностями. Статусные логи, jobs, attempts, блокировки и правила переходов ради stats не изменяются. События account.update/session.update не используются как свидетельства завершения или бана: сохранённый в них статус может лишь сопровождать изменение другого поля. Если допущение об отсутствии одинаковых переходов подряд нарушится, текущий расчёт может завысить число операций; автоматической защиты от этого план не обещает.
+
+Время событий в отчёте определяется сохранённым `log.created_at`, а не новым полем времени бизнес-перехода. У существующего default `now()` это время начала транзакции, поэтому статистика отражает время локального учёта, не точное время события на устройстве. Старые timestamps и контекст не переписываются.
+
+Единственное дополнение записи аудита — реализованный `session.error` для start/finish/ban. Обработчики в `app/api/ext/v1/session.py` перехватывают `Exception` и `asyncio.CancelledError` и передают первичную ошибку в `SessionErrorAudit` (`app/services/session_error.py`). Helper использует существующий `LogService.record_independent`, который записывает событие через существующий CRUD в собственной сессии и самостоятельно выполняет commit; прямого SQL в helper и записи через StatsService нет. Колонки, ограничения и схема журнала не меняются.
+
+- Один вызов получает UUID `operation_id`, `action`, `stage` и `db_outcome`. Исход начинается с `not_committed`, переводится в `unknown` **перед** вызовом бизнес-commit и в `committed` только **после** его успешного возврата. Rollback после ошибки commit не превращает неизвестный исход в подтверждённый откат.
+- ID вызывающего пользователя сохраняется до первого I/O обработчика. FK существующих сущностей сохраняются как доверенные скалярные значения после проверки владельца; FK новых сущностей разрешены только при `committed`. При неизвестном исходе commit новые FK остаются NULL, даже если строки фактически сохранились. Ссылки на чужие сущности не записываются.
+- `_release` сначала вызывает rollback, затем при необходимости close и проверяет `in_transaction()`. Если освобождение основной транзакции не подтверждено, новая транзакция аудита не открывается.
+- `report` защищает finalizer через `asyncio.shield` и дожидается его завершения при повторных отменах до очистки зависимостей запроса. Ошибка аудита не подменяет первичную ошибку, внешняя отмена передаётся вызывающему коду. Одновременная отмена самого finalizer и родительской задачи не теряет отмену родителя; этот случай покрыт отдельной регрессией.
+- Контекст ошибки содержит безопасные `type`, `code`, известный `http_status`, фиксированное техническое сообщение и только координаты трассировки: имя файла, функцию и номер строки. Исходные сообщения исключений, SQL, параметры SQL, device/API/auth-данные и `info_*` не копируются в аудит или технический лог.
+- Технический logger получает очищенный контекст. Если сохранение аудита не подтверждено, fallback в stderr выполняется независимо от успешного возврата logger, в том числе когда его handler подавляет I/O-ошибку. При отказе stderr к первичной ошибке добавляется безопасное примечание с сохранением исходного исключения.
+
+Бизнес-commit, успешные ответы, lifecycle-аудит, статусы и attempts сохранены. Повторный ban по-прежнему имеет исходный побочный эффект; его исправление остаётся вне scope.
+
+`account.error` не является общим счётчиком HTTP 4xx/5xx. `session.error` в этом плане также охватывает сбои **внутри аутентифицированных обработчиков**, включая прикладные отказы, а не все невалидные HTTP-запросы до входа в обработчик. Универсальный request-rate/error-rate и сбор Android Message API не входят в первую версию.
+
+### 5. Охват учёта и старые данные
+
+На фазе 3 реализована серверная настройка `STATS_COVERAGE_STARTS` в `app/core/settings/app_settings.py`: `dict[StatsCoverageName, UTCDateTime]` для четырёх допустимых групп `lifecycle`, `message_events`, `account_errors`, `session_errors`, по умолчанию `{}`. `NoDecode` и явный `json.loads` перед типовой валидацией не позволяют явно переданному JSON `null` незаметно превратиться в default; неизвестные ключи, null-значения, числовые timestamps и значения без timezone отклоняются. Общий RFC 3339 тип вынесен в `app/core/utc.py`, нормализует aware datetime в UTC и используется settings и схемами без импорта верхних слоёв из core. В `.env.example` добавлено `STATS_COVERAGE_STARTS={}`; рабочая `.env` не менялась, даты coverage в коде не заданы.
+
+Значения заполняются по подтверждённой дате работы соответствующих существующих producers; для session_errors — по подтверждённому оператором времени фактического rollout на всех обслуживающих workers, а не по дате реализации кода или MIN(created_at) первой попавшейся записи. Эта дата пока неизвестна; её фиксация остаётся открытым операционным пунктом фазы 2. Отсутствующая группа означает неизвестное начало учёта, а не начало эпохи. Настройка не требует новой таблицы или изменения log.
+
+- Для lifecycle существующие session.status/account.status доступны без новых метаданных при допущении FR-06. Ограничение исторического охвата связано с фактическим началом и сохранностью журналирования, а не с внедрением нового формата контекста.
+- Для сообщений контракт означает **первое свидетельство в сохранившемся журнале**, а не доказанное первое событие за всё время существования системы. Удалённую или никогда не собранную предысторию восстановить нельзя.
+- Для account.error использовать operation_id из существующего контекста; старые строки без него помечать как пробел в учёте, не объявлять каждую строку отдельным запросом.
+- Для session.error раньше его фактического внедрения показывать отсутствие учёта, не ноль ошибок.
+
+Сервер возвращает для каждой группы `from`, `current_state`, `previous_state` со значениями `recorded`, `partial`, `unavailable` и причиной. При неполном покрытии периода соответствующие totals/previous равны NULL; каждый bucket маскируется по собственному пересечению с датой начала учёта, полностью покрытые buckets сохраняют числа. Записи ошибок без operation_id, обнаруженные SQL, маскируют соответствующую группу ошибок целиком для затронутого периода, включая все его точки; другая группа и другой период не маскируются этим пробелом. Отсутствие метаданных изменения статуса не проверяется и не блокирует lifecycle. Для UI фазы 4 сохраняется требование не вычислять процент изменения для NULL. Пустой интервал по определению даёт нули и пустой ряд; предупреждение об охвате может сохраняться отдельно.
+
+Текущие состояния, группа сообщений по created_at и `message_created` доступны независимо от дат внедрения аудита, но остаются срезом сохранившихся строк. `recorded` означает корректно посчитанный сохранённый учёт, а не гарантию отсутствия пропущенных событий при отказе самой БД.
+
+## SQL-контракт
+
+Все `:parameters` ниже — bind-параметры, не строковая интерполяция. Q1/Q2 реализованы в `StatsService`, Q3 — в существующем `UserCRUD.get_options`. SQL ниже является читаемым образцом для PostgreSQL 12; реальные statements проверены на изолированной БД. `StatsService` использует две фиксированные формы: без ownership-предиката для admin-all и с `user_id = :scope_user_id` для ограниченной области. В SQL подставляются только заранее заданные предикаты, все значения запроса связаны параметрами; форма `IS NULL OR` ниже оставлена для читаемости, а не как буквальный текст сервиса.
+
+### Q1. Весь отчёт summary одним statement
+
+Параметры: `:start_at`, `:effective_end_at`, доверенный `:scope_user_id`. Конец уже разрешён сервером и проверен; вычисление календарного предела эквивалентно `((start_at AT TIME ZONE 'UTC') + INTERVAL '1 month') AT TIME ZONE 'UTC'`. `effective_end_at - start_at` определяет длительность, `previous_start = start_at - duration`.
+
+Запрос возвращает длинный набор counters для обоих периодов, статусную группу сообщений и сведения об ошибках без operation_id. `StatsService` собирает агрегаты, накладывает coverage и формирует DTO из этого результата; обработчик передаёт настройку coverage и сериализует ответ. Это один SELECT и один MVCC snapshot, а не несколько независимых запросов на каждую карточку; запрос не зависит от новых полей контекста статусных событий.
+
+```sql
+WITH
+p AS (
+    SELECT CAST(:start_at AS timestamptz) AS start_at,
+           CAST(:effective_end_at AS timestamptz) AS end_at,
+           CAST(:scope_user_id AS integer) AS owner_id
+),
+cfg AS (
+    SELECT p.*,
+           CASE WHEN end_at - start_at <= INTERVAL '24 hours'
+                THEN 'hour' ELSE 'day' END AS unit,
+           CASE WHEN end_at - start_at <= INTERVAL '24 hours'
+                THEN INTERVAL '1 hour' ELSE INTERVAL '1 day' END AS step
+    FROM p
+),
+periods AS (
+    SELECT 'current'::text AS period, start_at, end_at FROM p
+    UNION ALL
+    SELECT 'previous',
+           ((start_at AT TIME ZONE 'UTC') - (end_at - start_at)) AT TIME ZONE 'UTC',
+           start_at
+    FROM p
+),
+bounds AS (
+    SELECT MIN(start_at) AS lo, MAX(end_at) AS hi FROM periods
+),
+owned_accounts AS NOT MATERIALIZED (
+    SELECT a.id FROM account a CROSS JOIN p
+    WHERE p.owner_id IS NULL OR a.user_id = p.owner_id
+),
+owned_sessions AS NOT MATERIALIZED (
+    SELECT s.id FROM session s
+    JOIN owned_accounts a ON a.id = s.account_id
+),
+owned_messages AS NOT MATERIALIZED (
+    SELECT m.id, m.created_at, m.status FROM message m
+    JOIN owned_sessions s ON s.id = m.session_id
+),
+window_log AS NOT MATERIALIZED (
+    SELECT l.* FROM log l CROSS JOIN bounds b
+    WHERE l.created_at >= b.lo AND l.created_at < b.hi
+),
+session_facts AS (
+    SELECT l.created_at AS at, v.metric
+    FROM window_log l
+    JOIN owned_sessions s ON s.id = l.session_id
+    CROSS JOIN LATERAL (VALUES
+        ('opened', l.event = 'session.create' AND l.status = 'active'),
+        ('finished', l.event = 'session.status' AND l.status = 'finished'),
+        ('session_bans', l.event = 'session.status' AND l.status = 'banned'),
+        ('auto_finished', l.event = 'session.status' AND l.status = 'finished'
+            AND l.source = 'scheduler')
+    ) AS v(metric, include_event)
+    WHERE l.event IN ('session.create', 'session.status') AND v.include_event
+),
+account_facts AS (
+    SELECT l.created_at AS at, 'account_bans'::text AS metric
+    FROM window_log l
+    JOIN owned_accounts a ON a.id = l.account_id
+    WHERE l.event = 'account.status'
+      AND l.status = 'banned'
+),
+message_candidates AS (
+    SELECT DISTINCT l.message_id
+    FROM window_log l
+    JOIN owned_messages m ON m.id = l.message_id
+    WHERE l.event IN ('message.create', 'message.status')
+      AND l.status IN ('sent', 'delivered', 'undelivered', 'failed')
+),
+message_first AS (
+    SELECT c.message_id, f.*
+    FROM message_candidates c CROSS JOIN bounds b
+    CROSS JOIN LATERAL (
+        SELECT
+            MIN(l.created_at) FILTER (
+                WHERE l.status IN ('sent', 'delivered', 'undelivered')) AS sent_at,
+            MIN(l.created_at) FILTER (WHERE l.status = 'delivered') AS delivered_at,
+            MIN(l.created_at) FILTER (WHERE l.status = 'undelivered') AS undelivered_at,
+            MIN(l.created_at) FILTER (WHERE l.status = 'failed') AS failed_at
+        FROM log l
+        WHERE l.message_id = c.message_id
+          AND l.event IN ('message.create', 'message.status')
+          AND l.status IN ('sent', 'delivered', 'undelivered', 'failed')
+          AND l.created_at < b.hi
+          -- No lower bound: find the first observation in the whole retained history.
+    ) f
+),
+message_facts AS (
+    SELECT v.at, v.metric
+    FROM message_first f CROSS JOIN bounds b
+    CROSS JOIN LATERAL (VALUES
+        ('sent', f.sent_at), ('delivered', f.delivered_at),
+        ('undelivered', f.undelivered_at), ('failed', f.failed_at)
+    ) v(metric, at)
+    WHERE v.at >= b.lo AND v.at < b.hi
+),
+creation_facts AS (
+    SELECT m.created_at AS at, 'message_created'::text AS metric
+    FROM owned_messages m CROSS JOIN bounds b
+    WHERE m.created_at >= b.lo AND m.created_at < b.hi
+),
+error_candidates AS (
+    SELECT DISTINCT l.event, l.user_id,
+           NULLIF(l.context ->> 'operation_id', '') AS operation_id
+    FROM window_log l CROSS JOIN p
+    WHERE l.event IN ('account.error', 'session.error')
+      AND l.source = 'ext_api'
+      AND (p.owner_id IS NULL OR l.user_id = p.owner_id)
+      AND NULLIF(l.context ->> 'operation_id', '') IS NOT NULL
+),
+error_first AS (
+    SELECT c.event, c.user_id, c.operation_id, MIN(l.created_at) AS at
+    FROM error_candidates c
+    JOIN log l ON l.event = c.event
+      AND l.user_id IS NOT DISTINCT FROM c.user_id
+      AND NULLIF(l.context ->> 'operation_id', '') = c.operation_id
+    CROSS JOIN bounds b CROSS JOIN p
+    WHERE l.source = 'ext_api'
+      AND l.event IN ('account.error', 'session.error')
+      AND (p.owner_id IS NULL OR l.user_id = p.owner_id)
+      AND l.created_at < b.hi
+    -- Several errors in one operation still have one earliest timestamp.
+    GROUP BY c.event, c.user_id, c.operation_id
+),
+error_facts AS (
+    SELECT f.at,
+           CASE f.event WHEN 'account.error' THEN 'account_errors'
+                        ELSE 'session_errors' END AS metric
+    FROM error_first f CROSS JOIN bounds b
+    WHERE f.at >= b.lo AND f.at < b.hi
+),
+facts AS (
+    SELECT * FROM session_facts UNION ALL
+    SELECT * FROM account_facts UNION ALL
+    SELECT * FROM message_facts UNION ALL
+    SELECT * FROM creation_facts UNION ALL
+    SELECT * FROM error_facts
+),
+aggregated AS (
+    SELECT r.period, date_trunc(c.unit, f.at AT TIME ZONE 'UTC') AS bucket,
+           f.metric, COUNT(*) AS value
+    FROM facts f JOIN periods r ON f.at >= r.start_at AND f.at < r.end_at
+    CROSS JOIN cfg c
+    GROUP BY r.period, date_trunc(c.unit, f.at AT TIME ZONE 'UTC'), f.metric
+),
+metric_names(metric) AS (
+    VALUES ('opened'), ('finished'), ('session_bans'), ('account_bans'),
+           ('sent'), ('delivered'), ('undelivered'), ('failed'),
+           ('account_errors'), ('session_errors'), ('auto_finished'), ('message_created')
+),
+buckets AS (
+    SELECT r.period, g.bucket,
+           GREATEST(g.bucket AT TIME ZONE 'UTC', r.start_at) AS from_at,
+           LEAST((g.bucket + c.step) AT TIME ZONE 'UTC', r.end_at) AS to_at
+    FROM periods r CROSS JOIN cfg c
+    CROSS JOIN LATERAL generate_series(
+        date_trunc(c.unit, r.start_at AT TIME ZONE 'UTC'),
+        r.end_at AT TIME ZONE 'UTC', c.step
+    ) AS g(bucket)
+    WHERE r.start_at < r.end_at AND g.bucket < r.end_at AT TIME ZONE 'UTC'
+),
+counters AS (
+    SELECT b.period, b.bucket AT TIME ZONE 'UTC' AS key,
+           b.from_at, b.to_at, n.metric, COALESCE(a.value, 0) AS value
+    FROM buckets b CROSS JOIN metric_names n
+    LEFT JOIN aggregated a
+      ON a.period = b.period AND a.bucket = b.bucket AND a.metric = n.metric
+),
+message_cohort AS (
+    SELECT COUNT(*) AS total,
+           COUNT(*) FILTER (WHERE m.status = 0) AS created,
+           COUNT(*) FILTER (WHERE m.status = -1) AS waiting,
+           COUNT(*) FILTER (WHERE m.status = 1) AS sent,
+           COUNT(*) FILTER (WHERE m.status = 2) AS delivered,
+           COUNT(*) FILTER (WHERE m.status = 3) AS undelivered,
+           COUNT(*) FILTER (WHERE m.status = 4) AS failed,
+           COUNT(*) FILTER (
+               WHERE m.status IS NULL
+                  OR m.status NOT IN (-1, 0, 1, 2, 3, 4)) AS unknown_status
+    FROM owned_messages m CROSS JOIN p
+    WHERE m.created_at >= p.start_at AND m.created_at < p.end_at
+),
+audit_gaps AS (
+    SELECT l.created_at AS at,
+           CASE l.event WHEN 'account.error' THEN 'account_errors'
+                        ELSE 'session_errors' END AS metric_group
+    FROM window_log l CROSS JOIN p
+    WHERE l.event IN ('account.error', 'session.error') AND l.source = 'ext_api'
+      AND (p.owner_id IS NULL OR l.user_id = p.owner_id)
+      AND NULLIF(l.context ->> 'operation_id', '') IS NULL
+),
+gap_counts AS (
+    SELECT r.period, g.metric_group, COUNT(*) AS invalid_rows
+    FROM audit_gaps g JOIN periods r ON g.at >= r.start_at AND g.at < r.end_at
+    GROUP BY r.period, g.metric_group
+)
+SELECT statement_timestamp() AS generated_at,
+       COALESCE((SELECT jsonb_agg(to_jsonb(c) ORDER BY c.period, c.key, c.metric)
+                 FROM counters c), '[]'::jsonb) AS counters,
+       (SELECT to_jsonb(m) FROM message_cohort m) AS message_cohort,
+       COALESCE((SELECT jsonb_agg(to_jsonb(g)) FROM gap_counts g), '[]'::jsonb) AS audit_gaps;
+```
+
+Кандидаты сообщений и ошибок ограничены двумя нужными периодами, но поиск их первого свидетельства не имеет нижней временной границы. Если сначала обрезать историю, повтор вчерашней доставки сегодня ошибочно станет «первой доставкой сегодня». `COUNT(DISTINCT message_id)` отдельно в каждом bucket этой ошибки не исправляет. Вычитание длительности для предыдущего периода выполняется над timestamp в UTC: непосредственное вычитание interval с компонентом дней из timestamptz может зависеть от DST timezone соединения.
+
+`error_first` реализован группирующим JOIN, без отдельного LATERAL-поиска на каждую операцию. Явные фильтры event/source и владельца сохранены непосредственно на историческом `log`, а `session_facts` имеет явный фильтр событий; это позволяет использовать существующие индексы по event/user/FK. Поиск первых свидетельств сообщений сохраняет LATERAL по ограниченному набору кандидатов. Фактический выбор индексов подтверждён только на тестовом наборе после ANALYZE.
+
+В этом варианте `audit_gaps` выявляет только записи account.error/session.error без operation_id. При ненулевом счётчике сервер маскирует соответствующую группу ошибок данного периода и её точки как частичные; lifecycle из-за отсутствия новых JSON-полей не маскируется. Сначала применяется эта проверка и coverage, затем вычисляются frontend-совместимые totals; нулевой raw counter не является доказательством отсутствия ошибок при неизвестном учёте.
+
+Нормальные события message.create/message.status в этой версии означают зарегистрированные сервером состояния, в том числе административные назначения статуса. Если требуются исключительно подтверждения внешних клиентов, необходимо согласованно ограничить источники и скорректировать подписи; нельзя делать это скрытым условием SQL.
+
+### Q2. Независимый текущий срез live
+
+Параметр только `:scope_user_id`; время берётся из statement_timestamp. Условия готовности зеркалируют базовый отбор внешнего API без дополнительных клиентских фильтров и без блокировки/резервирования строк.
+
+```sql
+WITH p AS (
+    SELECT statement_timestamp() AS as_of,
+           CAST(:scope_user_id AS integer) AS owner_id
+),
+scoped AS (
+    SELECT a.status,
+           (a.file_name IS NOT NULL OR a.hash IS NOT NULL) AS has_payload,
+           (a.updated_at IS NULL OR a.cooldown IS NULL
+            OR a.updated_at + make_interval(mins => a.cooldown) < p.as_of) AS cooldown_elapsed
+    FROM account a CROSS JOIN p
+    WHERE p.owner_id IS NULL OR a.user_id = p.owner_id
+),
+counts AS (
+    SELECT COUNT(*) AS total,
+           COUNT(*) FILTER (WHERE status = 0 AND has_payload AND cooldown_elapsed) AS available,
+           COUNT(*) FILTER (WHERE status = 1) AS active,
+           COUNT(*) FILTER (WHERE status = 0 AND NOT cooldown_elapsed) AS paused,
+           COUNT(*) FILTER (WHERE status = -1) AS banned
+    FROM scoped
+)
+SELECT p.as_of, c.*,
+       c.total - c.available - c.active - c.paused - c.banned AS other
+FROM counts c CROSS JOIN p;
+```
+
+Ограничения интерпретации:
+
+- `paused` здесь означает виртуальный cooldown при физическом AVAILABLE, а не физический `status=2`; последний входит в other.
+- Payload ограничивает только available. AVAILABLE без payload и с действующим cooldown учитывается в paused; после окончания cooldown он относится к other. ACTIVE/BANNED считаются независимо от payload.
+- В выдаче сейчас используется строгое `now > cooldown_until`, тогда как административный фильтр допускает равенство. Q2 сохраняет правило выдачи: в точный момент равенства аккаунт ещё попадает в cooldown. Унификация другого поведения — отдельное решение, не скрытая правка stats.
+- Ненулевые, но пустые file_name/hash проходят существующий отбор. Q2 не ужесточает его молча и не проверяет существование файла на диске; поэтому «готовы» означает кандидатов по данным БД.
+- Не проверяются attempts и limit, потому что текущий базовый отбор их не использует. Заблокированные чужой транзакцией строки не исключаются: live показывает состояние, а не резервирует аккаунт.
+
+### Q3. Безопасные options пользователя
+
+Нового stats-users endpoint не требуется. Текущий options/user исправлен с сохранением формы `{text,value}`: обработчик назначает `owner_id=current_user.id` для member либо `None` для admin и вызывает `UserCRUD.get_options`. Клиентские параметры не расширяют эту область. Репозиторий выбирает только вычисленную подпись и ID, не загружая секретные колонки User. SQL ниже показывает семантику; `:is_superuser` и `:current_user_id` берутся из проверенного current_user, а реальный SQLAlchemy SELECT добавляет условие `User.id = owner_id` только для member.
+
+```sql
+SELECT u.id AS value,
+       COALESCE(NULLIF(u.name, ''), NULLIF(u.login, ''),
+                'Пользователь ' || u.id::text) AS text
+FROM "user" u
+WHERE CAST(:is_superuser AS boolean) OR u.id = CAST(:current_user_id AS integer)
+ORDER BY lower(COALESCE(NULLIF(u.name, ''), NULLIF(u.login, ''),
+                        'Пользователь ' || u.id::text)), u.id;
+```
+
+Административный список включает неактивных пользователей для исторических отчётов. Пустые name/login заменяются подписью `Пользователь {id}`; сортировка по lower(label), затем id детерминирована. Полный User DTO, содержащий ext_api_key, не используется в ответе stats или options; публичная проекция обеспечена уже на уровне SELECT options.
+
+### Проверка производительности без изменения схемы
+
+EXPLAIN фактических Q1/Q2 проверен для ограниченной области и admin-all на изолированном синтетическом наборе с существующими ORM-индексами после ANALYZE только тестовых таблиц; результаты приведены в фазе 3. Форма SELECT использует явные фильтры, predicate pushdown и ограничение кандидатов. Проверка индексов и объёмов рабочей БД остаётся открытой; стоимость поиска первых ошибок по operation_id на рабочих объёмах без дополнительного expression-индекса ещё не установлена, численный SLA не заявляется.
+
+Для рабочей БД в этой версии плана нет CREATE/ALTER/DROP, новых индексов или Alembic-ревизий. DDL тестовых fixtures ограничен отдельной схемой `stats_test_<uuid>` изолированной PostgreSQL: режим фазы 1 откатывает внешнюю транзакцию, режим независимых соединений фазы 2 фиксирует DDL и после проверок защиты удаляет только созданную им UUID-схему через `DROP SCHEMA ... CASCADE`; рабочая БД и `public` не удаляются. Если нужной скорости невозможно достичь на существующей схеме, представить результаты измерений и отдельно согласовать дальнейшее решение; нельзя автоматически расширять scope миграцией log, Redis или новым аналитическим хранилищем.
+
+## Scope изменений
+
+### Создать
+
+1. `app/api/v1/stats.py` — созданы JWT-обработчики summary/live, query DTO, вызовы сервиса и локальная граница SQLAlchemyError с безопасным 503, охватывающая также auth-зависимости.
+2. `app/schemas/stats.py` — созданы query/response DTO, группы метрик и quality; общая UTC-валидация на фазе 3 вынесена в новый `app/core/utc.py` и разделяется со settings без обратной зависимости core → schemas.
+3. `app/services/stats.py` — реализованы разрешение периода и scope, read-only Q1/Q2, coverage и сборка агрегатов, без CRUDBase, методов изменения сущностей и commit.
+4. `app/services/session_error.py` — создан `SessionErrorAudit` для независимого аудита ошибок start/finish/ban через LogService, освобождения основной транзакции и безопасной диагностики, без прямого SQL.
+5. Тестовые файлы:
+   - `tests/test_stats_contract.py` и `tests/test_stats_service.py` созданы для DTO, периода, прав доступа и ошибок сервиса.
+   - `tests/api/v1/test_stats.py` сохранён как проверки локальных HTTP contract-probes фазы 1; это не production-маршруты.
+   - `tests/integration/conftest.py` и `tests/integration/test_stats_fixtures.py` созданы для изолированной PostgreSQL 12, fixtures существующих ORM-таблиц, rollback и проверки scope через существующий CRUD. На фазе 2 conftest дополнен фиксируемой UUID-схемой для реальных независимых соединений и commit, с защищённым удалением только своей схемы после теста.
+   - `tests/test_session_error_audit.py`, `tests/api/ext/v1/test_session_error.py` и `tests/integration/test_session_error_transactions.py` созданы для helper, HTTP-сценариев и реальных независимых транзакций аудита соответственно.
+   - `tests/test_stats_settings.py` создан для типизированной coverage-конфигурации и отклонения некорректного JSON/null.
+   - `tests/integration/test_stats_aggregates.py`, `test_stats_edges.py` и `test_stats_explain.py` созданы для агрегатов, граничных условий, read-only транзакции и планов запросов. Первый файл переименован из `tests/integration/test_stats.py`, чтобы избежать pytest basename collision с прежними API contract-probes.
+   - `tests/api/v1/test_stats_api.py` и `test_user_options.py` проверяют зарегистрированные маршруты; `tests/integration/test_stats_api_postgres.py` выполняет их на PostgreSQL. Последний переименован из `tests/integration/test_stats_api.py` по той же причине уникальности pytest basename.
+   - `tests/dashboard_api.test.js` проверяет транспорт и отображение DTO; `tests/dashboard_api_fixtures.cjs` содержит независимые snake_case fixtures, не использующие DashboardMock.
+   - `tests/shared_auth.test.js` проверяет фактические общие scripts в Node VM: синхронный контракт, storage, ранние отказы, гонки ответов, logout и безопасный header.
+   - `tests/integration/test_stats_acceptance.py` — независимые контрольные SQL, реальные HTTP/PostgreSQL-проверки календарных границ, области и cohort/live.
+   - `tests/integration/test_stats_concurrency.py` — конкурентный snapshot с тестовым advisory gate, реальные сессионные операции с параллельным чтением stats и каталог собственной тестовой схемы до/после.
+6. `html/dashboard/js/api.js` — реализованный адаптер stats/options с отменой запросов, валидацией DTO/scope/периода и свежими credentials, без переноса расчётов SQL в браузер.
+
+### Изменить
+
+7. `app/api/v1/__init__.py` — stats подключён к `api_router`; схемы импортируются из `app/schemas/stats.py`, экспорты CRUD ради stats не добавлены.
+8. `app/api/ext/v1/session.py` — добавлен аудит session.error через SessionErrorAudit и готовый LogService.record_independent; правила start/finish/ban, attempts и успешный статусный аудит сохранены.
+9. `app/api/v1/options.py`, `app/crud/user.py` — реализована безопасная проекция options и серверная область по текущему пользователю; это существующий CRUD пользователя, не новый CRUD статистики.
+10. `app/core/settings/app_settings.py`, `.env.example` — реализована типизированная настройка STATS_COVERAGE_STARTS с default `{}` и пояснением подтверждённых дат rollout; рабочая `.env` не менялась.
+11. `html/dashboard/index.html`, `html/dashboard/css/style.css`, `html/dashboard/js/dashboard.js`, `tests/dashboard_browser.cjs` — подключение API stats, состояния loading/error/NULL, защита от устаревших ответов при быстрой смене фильтра, сохранение независимого live.
+12. Тесты внешних сессионных обработчиков и `tests/test_log.py` — проверки нового session.error и неизменности основной операции; `tests/dashboard_mock.test.js` остаётся проверкой демонстрационного источника, но его межметрические равенства не копируются как бизнес-инварианты backend.
+13. `.opencode/project/{architecture,conventions,constraints,overview,changes}.md`, размещение компонентов и тестов в `structure.md`, описание проверок в `stack.md` — одобренные правила сервисного слоя, результаты фаз 1–5 и ограничения верификации; полное завершение фазы 3 и production rollout не заявляются.
+14. `html/static/auth.js`, `html/static/script.js` — отдельно одобренные пользователем исправления общего auth poll, раннего отказа до DOM-ready, logout и текстового вывода имени; backend авторизации и credential caches остальных legacy grids не перерабатываются.
+15. `plans/261003-dashboard-backend/rollout.md` — подготовленный, но не выполненный операторский порядок включения/отката с недостающими входными данными и проверенными особенностями startup; не разрешение на deployment.
+
+### Удалить
+
+Удаление файлов не требуется. Прототипный mock_data.js сохранить как явно включаемый демонстрационный режим; при ошибке настоящего API нельзя незаметно показывать моки. Модели и схема log, миграции, jobs и доработки идемпотентности исключены из scope. Пользователь одобрил точечное обновление проектной документации для StatsService, SessionErrorAudit и результатов фаз 1–4, включая общие auth/header-исправления, с записью в changes.md; архивные результаты и ссылки сохраняются.
+
+## Фазы реализации
+
+Фаза 1 завершена по уточнённому с пользователем порядку: проверка рабочей БД перенесена в фазу 3 и не объявляется выполненной. Кодовая часть фазы 2 реализована и проверена, операционная фиксация начала production coverage остаётся открытой до фактического rollout. Код фазы 3 — `code_ready`, включая итоговые статические проверки; первый пункт о рабочей БД открыт. Фаза 4 завершена после одобренного расширения на общие auth/header-исправления, проверок и синхронизации документации. Пользователь ответом «да» подтвердил фазу 5. Её локальная приёмка выполнена; согласованный рабочий объём/стоимость, metadata и включение требуют оператора.
+
+### Фаза 1. Контракт и доказательная база
+
+- [x] Зафиксировать имя stats, `StatsService` в `app/services/stats.py`, допущение об отсутствии одинаковых переходов подряд и неизменность схемы log; согласовать узкое исключение для read-only аналитических SELECT внутри сервиса без мутаций и commit.
+- [x] Добавить DTO, нормализацию timezone, календарный предел и матрицу прав; описать JSON-контракт и ошибки будущих эндпоинтов, проверить их на локальных HTTP contract-probes.
+- [x] Подготовить изолированную PostgreSQL и fixtures на основе существующих ORM-моделей для разных владельцев, переходов через промежуточные статусы, поздних подтверждений, нескольких ошибок одной операции и пустых данных.
+
+Проверка фактической рабочей БД, ранее пункт 2 этой фазы, перенесена в фазу 3 с явного согласия пользователя. Изолированные fixtures не подтверждают production.
+
+**Результаты выполненной фазы 1:**
+
+- В `app/schemas/stats.py` созданы Pydantic query/response DTO: строгий RFC 3339 с timezone и нормализацией в UTC, положительные PostgreSQL integer ID, `extra="forbid"`, `frozen=True`, различение nullable-счётчиков и нулей, alias `from` для coverage.
+- `StatsService.resolve_period` фиксирует текущее время один раз, ограничивает интервал календарным месяцем с прижатием дня к концу следующего месяца, выбирает часовой шаг при длительности ≤24 часов и вычисляет непосредственно предшествующий UTC-период той же длительности. Асинхронный `resolve_scope` поддерживает self/admin-all/admin-selected и использует существующий `UserCRUD.get` для выбранного пользователя. Сервис выдаёт типизированные ошибки периода, запрета области и отсутствующего пользователя.
+- Для верификации использовалась изолированная PostgreSQL 12 в Docker на динамическом loopback-порту, отличном от 5432. Fixtures требуют явных `STATS_TEST_POSTGRES_DSN` и `STATS_TEST_ALLOW_SCHEMA_CREATE=1`, выделенных БД `o3go_stats_test` и пользователя `stats_test`, проверяют версию и состояние схем до DDL. Таблицы существующих ORM-моделей создаются в `stats_test_<uuid>` внутри внешней транзакции с rollback; рабочая БД и миграции не затрагиваются. Синтетические записи session.error в fixtures не означают готовность его production-аудита.
+- По результатам итоговой верификации прошли 169 pytest-проверок: 92 проверки основы stats и 77 существующих регрессий LogService, отчёта аккаунта, device и missing-files API. Flake8 семи новых Python-файлов и mypy двух новых модулей приложения прошли; в pytest остались три предупреждения существующих зависимостей (passlib и class-based Pydantic config). Использовались Python 3.11.14 и отдельное uv-окружение вне репозитория с установленными requirements; проектная `.venv` не работала из-за старого пути интерпретатора и не менялась. Тесты запускались из заранее разрешённого временного CWD без чтения `.env`, с фиктивным `POSTGRES_DSN` на порту 1 и `PYTHONDONTWRITEBYTECODE`; PYTHONPATH включал корень репозитория и `app` для существующих абсолютных импортов `core`. Исходники старых модулей ради тестового bootstrap не менялись.
+- При статической проверке исправлен граничный случай пустых name/login: сервис использует безопасную подпись `Пользователь {id}` и для self, и для admin-selected; четыре регрессионных сценария входят в итоговые 92 проверки stats. Контрактные HTTP-probes не регистрируются в production router.
+- Финальный запуск всех 169 проверок повторён с очищенным окружением (`env -i`), синтетическими настройками и временными HOME/TMPDIR/cache вне проекта. После проверки созданный для фазы 1 временный PostgreSQL-контейнер остановлен; fixtures и временное Python-окружение доступны для следующего запуска, рабочие контейнеры не затрагивались.
+
+**Переход после фазы 1:** пользователь подтвердил фазу 2; результаты её кодовой части приведены ниже. Проверка рабочей БД осталась задачей фазы 3. На момент завершения фазы 1 production-конфигурация и схема log не менялись, coverage settings, SQL summary/live, реальные stats-эндпоинты и подключение frontend ещё не были реализованы; последующий результат backend зафиксирован в фазе 3.
+
+### Фаза 2. Дополнение журнала событиями session.error
+
+- [x] Определить безопасный JSON-контекст session.error и единый operation_id одного вызова, используя существующие поля log и не меняя формат обычного статусного аудита.
+- [x] Добавить session.error в обработку ошибок start/finish/ban через существующий независимый writer после освобождения основной транзакции; не менять успешные ответы и бизнес-переходы.
+- [x] Проверить rollback, отсутствие FK на незафиксированную/чужую сущность, отмену, неизвестный исход commit и fallback при отказе самого аудита.
+- [ ] Зафиксировать дату включения session.error после фактического rollout обработчиков на всех обслуживающих workers; для остальных групп использовать подтверждённые даты существующего учёта без фиктивного backfill. Это операционное условие остаётся в фазе 2: deployment не запрошен, дата неизвестна и должна быть подтверждена оператором при rollout.
+
+**Результаты реализации и проверки кодовой части фазы 2 (2026-10-03):**
+
+- Создан `SessionErrorAudit` и подключён к start/finish/ban. Проверены безопасный контекст, скалярные доверенные FK, три исхода бизнес-транзакции, освобождение транзакции до независимого writer, отмены и fallback, описанные в разделе 4. Проверка одновременной отмены finalizer и родителя подтверждает сохранение внешней отмены; повторные отмены не позволяют очистке зависимостей опередить finalizer.
+- Добавлены 86 проверок: 27 helper-тестов в `tests/test_session_error_audit.py`, 51 HTTP-сценарий в `tests/api/ext/v1/test_session_error.py` и 8 проверок на реальной PostgreSQL в `tests/integration/test_session_error_transactions.py`. Сценарии охватывают штатные ответы и lifecycle, прикладные отказы, ошибки до/после commit, безопасные FK, недоступный аудит и отсутствие утечки приватных данных. Отказы валидации и аутентификации до входа в обработчик не создают session.error.
+- `tests/integration/conftest.py` сохраняет режим внешней транзакции с rollback и добавляет `stats_session_factory` с фиксируемым DDL в собственной `stats_test_<uuid>`. Второй режим нужен для реальных commit и отдельных соединений; teardown после проверок защиты выполняет `DROP SCHEMA ... CASCADE` только для созданной тестом UUID-схемы и проверяет её удаление. До DDL обязательны явные `STATS_TEST_POSTGRES_DSN` и `STATS_TEST_ALLOW_SCHEMA_CREATE=1`, адрес `127.0.0.1` с портом, отличным от 5432, БД `o3go_stats_test`, пользователь `stats_test`, PostgreSQL 12, пустая `public` и отсутствие других пользовательских схем; при teardown допускается только собственная UUID-схема. Рабочая БД и `public` не удаляются.
+- PostgreSQL-проверки подтверждают разные backend PID у основной сессии, независимого writer и наблюдателя; сохранённый аудит виден наблюдателю до закрытия основной сессии. Rollback восстанавливает статусы и attempts. При потере подтверждения уже выполненного commit бизнес-строки сохраняются, но исход остаётся `unknown`, новые FK аудита — NULL; при ошибке `prepare_response` после успешного возврата commit исход равен `committed` и новые FK валидны.
+- В итоговом совместном запуске прошли 360 pytest-проверок: 86 новых и проверки фазы 1, LogService, отчёта аккаунта, device/missing-files API, upload и существующего session device. Остались три прежних предупреждения зависимостей (passlib и class-based Pydantic config). Flake8 шести новых/изменённых Python-файлов фазы 2 прошёл. После последней правки повторно прошёл mypy для `app/services/session_error.py`, `app/services/stats.py` и `app/schemas/stats.py`; `git diff --check` также не выявил ошибок.
+- Верификация выполнялась только на отдельном тестовом контейнере PostgreSQL 12, с очищенным окружением `env -i`, заранее разрешённым временным CWD и фиктивным DSN приложения на порту 1. Рабочая `.env` не читалась. После проверок созданный для фазы 2 контейнер остановлен по его точному ID с проверкой тестовой метки; рабочие контейнеры не затрагивались. Результаты не подтверждают production metadata или начало coverage.
+- Бизнес-commit, успешные ответы, lifecycle/status-аудит и attempts сохранены; побочный эффект повторного ban не исправлялся. В рамках фазы 2 не менялись схема БД и миграции, не реализовывались агрегаты StatsService, production Stats API, настройка STATS_COVERAGE_STARTS или подключение frontend.
+
+**Осталось:** подтвердить оператором фактическое начало production-учёта после rollout, сохранив последний пункт фазы 2 открытым. Кодовая часть реализована и проверена; полное завершение фазы 2 зависит от выполнения её операционного пункта. Пользователь отдельно подтвердил переход к фазе 3 ответом «да»; это не закрывает операционный пункт фазы 2.
+
+### Фаза 3. Агрегаты и endpoints
+
+- [ ] Проверить фактическую рабочую PostgreSQL, применённые миграции, существующую схему и индексы, объёмы и доступный период аудита без записей в рабочую БД и без создания миграций; подтвердить оставшиеся открытые решения. Пункт перенесён из фазы 1 с согласия пользователя; нужен явно предоставленный read-only endpoint рабочей БД либо операторский вывод, изолированные fixtures не подтверждают production.
+- [x] Реализовать Q1 в `StatsService` единым statement: переходы по event/status без новых JSON-полей, обе временные области, global-first подтверждения/ошибки, заполнение пустых buckets, cohort и ошибки без operation_id.
+- [x] Реализовать Q2 в `StatsService` без зависимости от периода и Q3 через существующий CRUD пользователя с корректной пользовательской областью.
+- [x] Добавить endpoints /api/v1/stats/summary и /api/v1/stats/live, серверный scope, настройку STATS_COVERAGE_STARTS, метаданные quality и NULL-маскирование неизвестного учёта; сохранять неизвестное предыдущее значение как NULL для последующего UI-сравнения.
+- [x] Проверить SQL и EXPLAIN на изолированной PostgreSQL 12 с существующими ORM-схемой и индексами, после ANALYZE только тестовых таблиц; зафиксировать измерения без новых индексов, миграций или DDL рабочей БД.
+
+**Результаты кодовой части фазы 3 — `code_ready` (2026-10-03):**
+
+- `StatsService.get_summary` читает обе временные области, global-first свидетельства сообщений и ошибок, cohort и audit gaps одним CTE SELECT в одном snapshot. `get_live` выполняет отдельный CTE SELECT с фактическим `statement_timestamp()` и условиями payload/cooldown текущего отбора. Для обоих запросов имеются фиксированные scoped/admin-all формы с bind-параметрами; мутаций, `FOR UPDATE` и commit в сервисе нет.
+- `error_first` использует группирующий JOIN; явные event/source/owner-предикаты исторического сканирования и event-предикат `session_facts` согласованы с существующими индексами. Последняя проверка выявила отсутствие прямого event-предиката истории ошибок и границы SQL-ошибок auth-зависимостей; оба замечания исправлены, регрессии добавлены.
+- Реальные `GET /api/v1/stats/summary` и `/live` зарегистрированы в `api_router`. Проверены JWT, query DTO, 401/403/400 существующей авторизации, 403/404 области, 422 периода и общий SQL 503. Локальный `_StatsRoute` охватывает auth/owner/aggregate ошибки; безопасные logger и независимый stderr выполняются вне event loop, отказ диагностики сохраняет 503 и notes без приватных данных.
+- `STATS_COVERAGE_STARTS` реализована как типизированный JSON-словарь четырёх групп с default `{}`, `NoDecode` и явным JSON-декодированием. Общий `core/utc.py` устраняет дублирование RFC 3339-валидации settings/DTO без core → upper import. Неполное/неизвестное покрытие маскирует событийные счётчики в NULL, сохраняя cohort и message_created; нулевой диапазон возвращает нули и пустой ряд. Ошибки без operation_id маскируют всю свою группу затронутого периода и её точки, а граница coverage применяется к каждому bucket.
+- `options/user` использует `UserCRUD.get_options`: SELECT только text/value, серверный User.id для member независимо от подставленных клиентом параметров, все пользователи, включая неактивных, для admin, fallback `Пользователь {id}` и сортировка lower(label)/id. Секретные колонки не входят в проекцию options.
+- Основной итоговый запуск: **477 pytest-проверок прошли**, включая прежние 360 и 117 новых проверок фазы 3; остались три существующих предупреждения passlib и class-based Pydantic config. Отдельная выборка из 189 stats-проверок также прошла. Старые HTTP contract-probes сохранены; новые тесты используют реальные маршруты, отдельно с mock DB и PostgreSQL. Имена новых файлов и переименования для устранения pytest basename collision перечислены в scope.
+- PostgreSQL-сценарии проверяют tenant-изоляцию и текущего владельца, DST/UTC и границы buckets, global-first ошибки/поздние callbacks, cohort, частичное покрытие и live payload/cooldown. В `SET TRANSACTION READ ONLY` перехват SQL подтверждает по одному аналитическому statement для summary/live в scoped/admin-all режимах, отсутствие commit и изменений ORM-состояния. Это не утверждение об одном SQL на весь HTTP-запрос с аутентификацией.
+- EXPLAIN выполнен на 2 000 сообщениях и 6 600 логах (6 000 message-логов и 600 error-логов для 300 операций), с 3 пользователями, 2 аккаунтами и 2 сессиями. Перед замерами выполнен ANALYZE только тестовых таблиц. Исторический scan ошибок в полученных планах читает 300 error-строк для scoped и 600 для admin-all, а не все 6 600 логов; используются существующие `ix_log_event` и, для scoped, `ix_log_user_id`.
+
+| Запрос | Область | Execution, мс | Planning, мс | Shared hit blocks |
+|---|---|---:|---:|---:|
+| Q1 summary | scoped | 12.122 | 2.781 | 3300 |
+| Q2 live | scoped | 0.026 | 0.102 | 1 |
+| Q1 summary | admin-all | 18.657 | 2.483 | 6306 |
+| Q2 live | admin-all | 0.022 | 0.106 | 1 |
+
+Каждый план возвращает одну строку; shared read/dirtied/written, local и temp blocks равны нулю. Замеры относятся к синтетическому набору после ANALYZE с попаданиями в shared buffers; они не устанавливают production SLA и не доказывают ускорение исключительно за счёт изменения SQL. Артефакт этого запуска: `/var/folders/71/5hvxcjj52vz0_t_49hcz6shm0000gn/T/opencode/stats-phase1/stats-phase3-explain.json`. Это OS-specific путь результата в разрешённом временном каталоге, не настройка приложения. Тест по умолчанию использует переносимый pytest `tmp_path`; опциональный `STATS_TEST_EXPLAIN_DIR` действует только в тесте и проверяется как существующий каталог внутри системного временного каталога.
+
+- Оба режима `tests/integration/conftest.py` сохранены: внешняя транзакция с rollback и фиксируемая UUID-схема для независимых соединений/commit с защищённым teardown. Этот conftest на фазе 3 не менялся. Верификация использовала только отдельный контейнер PostgreSQL 12, проверяемый тестовый DSN, `env -i`, разрешённый временный CWD и фиктивный DSN приложения на порту 1; рабочая `.env` не читалась и не менялась. Локальные FastAPI-приложения подключают `api_router` без импорта `app.main` и запуска production lifespan. После проверок созданный для фазы 3 контейнер остановлен по точному ID с проверкой тестовой метки; рабочие контейнеры не затрагивались.
+- **Итоговые статические проверки прошли:** flake8 15 новых/изменённых Python-файлов фазы 3, mypy пяти core/schema/service/API-модулей после последних изменений и `git diff --check` не выявили ошибок.
+- Схема log, модели, миграции и индексы рабочей БД не менялись; StatsCRUD и отдельный пакет запросов не созданы. HTML/JS дашборда в рамках фазы 3 не менялись: источник по-прежнему `DashboardMock`, `html/dashboard/js/api.js` ещё отсутствует. Production rollout и даты coverage не подтверждены.
+
+**Осталось и переход:** первый пункт фазы 3 остаётся `[ ]` до предоставления read-only endpoint рабочей БД либо операторского вывода. Кодовая часть и её проверки завершены, но полное завершение фазы 3 не заявляется без сведений рабочей БД. Последний операционный пункт фазы 2 также открыт. Пользователь впоследствии подтвердил переход к фазе 4; результаты приведены ниже. Deployment не выполнялся.
+
+### Фаза 4. Подключение текущего интерфейса
+
+- [x] Подключить API-адаптер stats и существующий options/user без переименования frontend-раздела и без восстановления удалённых пресетов, заголовков и таблицы.
+- [x] Сохранить восемь карточек и шесть графиков; использовать отдельные datasets событий и текущих статусов, не переносить моковые вычитания в production.
+- [x] Обновлять live раз в 60 секунд независимо от периода; показывать timestamp и прежнюю корректную область при невалидном редактировании диапазона. Явная смена владельца очищает прежние данные и обновляет live новой области даже при невалидном периоде.
+- [x] Добавить loading/error/unavailable, обработку 400/401/403/422/503 и отбрасывание устаревших ответов; учесть существующие 400 для неактивного пользователя и 403 для невалидного JWT, отключить неявный fallback на фейковые данные. Подтверждённые прежние дефекты общей авторизации и header устранены после отдельного согласия пользователя, результаты приведены ниже.
+
+**Результаты локальной реализации фазы 4 (2026-10-04):**
+
+- Создан `DashboardApi`: фиксированные GET summary/live/options, свежий Bearer token на каждый запрос, timeout 20 секунд, отменяемые Promise+jqXHR и явное отображение полей DTO. Открытый конец и admin-all user_id отсутствуют в query. Ответы проверяются на ожидаемый scope/период; NULL, независимые cohort и серверное округление сохраняются. Смена credentials во время запроса отвергает его успех и ошибку, не удаляя новый токен из-за старого stats-ответа.
+- Контроллер использует независимые каналы summary/live/users с отменой и revision guards. Live не зависит от успешности summary и корректности дат, не перекрывает свой pending-запрос по таймеру и обновляется каждые 60 секунд. Смена владельца очищает старые карточки, charts, live и диалог. Ошибка summary не уничтожает успешный live; ошибка live не уничтожает исторический отчёт. Последний корректный snapshot той же области сохраняется с явным предупреждением.
+- Неизвестные значения показаны как «—» с причинами coverage; сравнение с неизвестным previous не вычисляется. В Kendo неизвестные бары не становятся нулями; cohort остаётся отдельным dataset. Ручной ввод дат разбирается в UTC, включая час внутри локального DST gap; выбор из календаря/списка времени заменяет незавершённый текстовый draft. Сохранены макет, восемь карточек, шесть графиков, цвета и модальные детали.
+- `pagehide` отменяет запросы и отключает timers/observer; persisted `pageshow` восстанавливает один live timer и независимо догружает options, даже если период невалиден. Обычный режим не загружает mock_data.js; только явный `?demo=1` использует вымышленные данные с соответствующей подписью, без stats/options-запросов.
+- **41/41 Node-проверка прошла:** 25 тестов адаптера и прежние 16 тестов mock. Команда: `node --test tests/dashboard_api.test.js tests/dashboard_mock.test.js`. Синтаксис api.js, dashboard.js, browser runner и fixtures проверен через `node --check`; `git diff --check` прошёл.
+- **79/79 browser-сценариев прошли** в Chromium 153.0.8010.12 с фактическими jQuery 1.12.4 и Kendo 2022.2.510. API-ответы и часы — fixtures; код интерфейса, auth и виджеты не подменяются. Покрыты admin/member, API/demo, 390/320 px и Drawer, UTC/DST/calendar-month, пустые/частичные данные, HTTP 400/401/403/404/422/503, сеть/timeout/некорректный ответ, независимость каналов, гонки фильтров/токенов и lifecycle. Независимые wire-fixtures дополнительно прошли **104/104** валидации действующими DTO: 100 StatsSummary и 4 StatsLive, в изолированном Python 3.11.14/Pydantic 2.11.4 без eager imports приложения.
+- Browser runner запускается через внешний Playwright: `NODE_PATH=<external node_modules> PLAYWRIGHT_BROWSERS_PATH=<browsers> node tests/dashboard_browser.cjs`. `DASHBOARD_TEST_FILTER` выбирает сценарии; `DASHBOARD_SCREENSHOTS` принимает только существующий системный временный каталог вне проекта. Последний отчёт и 24 screenshots: `/var/folders/71/5hvxcjj52vz0_t_49hcz6shm0000gn/T/opencode/dashboard-browser/dashboard-phase4-browser-report.json` и соседние `phase4-*.png`. Эти пути — локальные артефакты, не конфигурация приложения.
+- Границы проверки: браузерные ответы замоканы, production API не вызывался; реальные backend-маршруты/PostgreSQL проверены ранее в фазе 3, а полный pytest здесь повторно не запускался. BFCache/storage проверены dispatch событий, не реальным history traversal/межвкладочной доставкой; drill-down использует настоящий Kendo seriesClick, не pointer hit-testing SVG. Firefox/WebKit не проверялись.
+
+**Блокеры общего frontend-кода, выявленные 2026-10-04 и устранённые 2026-10-05. Ниже — состояние и номера строк до исправлений:**
+
+1. `html/static/auth.js:46–75` использует cached `isAuth` и без проверки текущего сеанса изменяет localStorage. Runtime-probe фактического исходника подтверждает: поздний success старого auth-запроса заменяет новый токен старым, поздний 401 удаляет новый токен. Защита DashboardApi не распространяется на этот самостоятельный auth poll.
+2. `html/static/auth.js:71–75` и `html/static/script.js:109–111`: 401 до DOM-ready удаляет token, но оставляет cached `isAuth`; shared bootstrap падает при чтении `null.ts`. В Chromium подтверждены отсутствие перехода к входу, скрытая login-кнопка без обработчика и незавершённая инициализация дашборда.
+3. `html/static/script.js:186` вставляет имя пользователя как HTML без escaping. Локальный безопасный `<img onerror>` fixture установил маркер `window.__dashboardXss=1` внутри фактического toolbar. Это прежняя XSS-уязвимость shared header, не внесённая новым stats-адаптером.
+
+Диагностика использовала только временные файлы и блокировку внешней сети: `shared-readonly-20261004-runtime-report.json` и `shared-readonly-20261004-schema-report.json` в том же разрешённом временном каталоге. На этом этапе общие auth/header намеренно не менялись, а исправления и синхронизация проектной документации были вынесены на согласование. Пользователь впоследствии ответил «да»; результат одобренного продолжения приведён ниже.
+
+**Одобренные общие исправления и итог фазы 4 (2026-10-05):**
+
+- В `html/static/auth.js` сохранены синхронные `getToken`/`setToken`, объектный `window.isAuth`, четыре поля token, lowercase `bearer` и совместимость auth timestamps без timezone. Getter безопасно обрабатывает JSON/storage и отвергает некорректную форму; setter сохраняет только token-поля и обновляет cached auth после успешной записи. `setToken(null)` очищает память и storage, увеличивает revision и не позволяет старому ответу восстановить завершённую сессию, даже при последующем входе с теми же credentials.
+- Каждый auth poll читает свежий storage, сохраняет credentials/user/role/active fingerprint и request revision. Success/failure проверяют их до применения результата; обновление только timestamp не трактуется как новый вход. Успех проверяет user ID и форму DTO, сохраняет credentials запроса и обновляет профиль/время. Подтверждённые 401/403/404, 400 `Inactive user` и inactive-success завершают сессию и переходят на `/auth/`; сеть, timeout, 5xx, иной 400 и некорректный ответ не удаляют действующий token, а дают безопасное предупреждение и повторную проверку. Один таймер на 60 секунд не размножается при ручных вызовах; timeout запроса — 20 секунд.
+- Shared bootstrap повторно читает token и проверяет его перед `.ts`, Drawer и header. Logout использует `setToken(null)`. Имя не вставляется в HTML/Kendo template: статическая разметка заполняется через `.text()`, включая fallback login/ID. Регрессии проверяют буквальный вывод HTML и Kendo-expression payload для admin/member; выполнение кода и создание пользовательских HTML-элементов отсутствуют.
+- Итоговый запуск **156/156 Node-тестов прошёл**: 115 shared auth/header, 25 DashboardApi, 16 DashboardMock. Команда: `node --test tests/shared_auth.test.js tests/dashboard_api.test.js tests/dashboard_mock.test.js`. Проверены реальные shared scripts в VM, ошибки JSON/storage, ранний отказ до DOM-ready, success/inactive/error, новые credentials при старом cached auth, logout/re-login с одинаковыми credentials, отмена, порядок ручных проверок и отсутствие лишних таймеров.
+- Полный browser-запуск **112/112 сценариев прошёл**: прежние 79 и 33 новых shared auth/header. Использованы тот же Chromium 153.0.8010.12, фактические HTML, jQuery 1.12.4 и Kendo 2022.2.510. Новые сценарии подтверждают настоящий переход на `/auth/` до DOM-ready с рабочими login widgets, старые success/401 после нового входа/смены роли, обновление профиля, transient failures, 20-секундный timeout и подтверждённый Kendo logout. Тестовый audit допускает только отмену конкретного намеренно задержанного script.js при подтверждённой навигации на вход; прочие ошибки scripts, runtime и сети остаются отказами теста.
+- Итоговый отчёт и 24 screenshots: `/var/folders/71/5hvxcjj52vz0_t_49hcz6shm0000gn/T/opencode/dashboard-browser/shared-auth.PHKT8i/dashboard-phase4-browser-report.json` и соседние `phase4-*.png`. Команда использовала прежние внешние `NODE_PATH`/`PLAYWRIGHT_BROWSERS_PATH` и этот проверенный временный каталог в `DASHBOARD_SCREENSHOTS`, без установки пакетов в проект.
+- `node --check` и проверки whitespace прошли. Независимый просмотр новых auth/header-путей не выявил блокирующих замечаний. Wire-fixtures не менялись; их предыдущая проверка 104 DTO сохраняет силу. Исторические 477 pytest-проверок и flake8/mypy относятся к фазе 3, а не к новому Python-запуску после frontend-изменений.
+- С согласия пользователя синхронизированы `.opencode/project/{architecture,conventions,constraints,overview,structure,stack,changes}.md`. Фаза 4 завершена в коде и локальной верификации; её четыре пункта отмечены `[x]`. Backend, рабочая `.env`, БД, миграции, индексы и coverage-даты не менялись; `STATS_COVERAGE_STARTS={}` продолжает означать неизвестный охват. Legacy grids с ранее захваченными credentials не рефакторились; общие исправления не означают обновления всех frontend-потребителей.
+
+**Переход после фазы 4:** пользователь впоследствии явно подтвердил фазу 5. Deployment не выполнялся. Операционный пункт фазы 2 о фактическом rollout/coverage и первый пункт фазы 3 о рабочей БД остаются открытыми; frontend-проверки их не закрывают. Ограничения browser-проверок, перечисленные выше, сохраняются.
+
+### Фаза 5. Приёмка и безопасное включение
+
+- [x] Пройти API-, SQL- и browser-проверки обоих ролей, календарных границ, нулевых интервалов и независимого live на изолированных данных.
+- [x] Сверить карточки с суммой buckets и ручными контрольными SQL по изолированным fixtures, включая ранее зарегистрированное подтверждение и возврат к нему через другой статус внутри периода.
+- [ ] Проверить неизменность схемы и основных сессионных операций, согласованность snapshot и стоимость SELECT на согласованном объёме; при проблеме сначала оптимизировать запрос, не добавлять индексы или Redis автоматически. **Частично выполнено:** локальные snapshot, операции и собственная тестовая схема проверены, EXPLAIN повторён. Согласованный репрезентативный объём/численные критерии стоимости и metadata рабочей БД отсутствуют; синтетический набор не закрывает этот пункт полностью.
+- [ ] Включить session.error до объявления его coverage, затем read-API stats и frontend; при откате отключать реальные отчёты явно, не выдавать отсутствие учёта за нули. Подготовлен [rollout.md](rollout.md), но не выполнен: нужны разрешённые окружение/релиз/откат и подтверждение оператора по всем workers.
+
+**Результаты локальной приёмки фазы 5 (2026-10-05):**
+
+| Проверка | Новый результат фазы 5 |
+|---|---|
+| Повтор существующей Python-выборки | **477 passed**, 16,04 с |
+| Только два новых приёмочных файла | **24 passed**, 7,07 с: 21 control/HTTP + 3 concurrency |
+| Совместная Python-выборка | **501 passed**, 32,58 с; явно перечисленные ниже 22 файла, не весь репозиторий |
+| Node shared auth + API + mock | **156 passed**, без failures/skips |
+| Полный browser runner | **112 passed**, 0 failed, Chromium 153.0.8010.12; 24 screenshots |
+| Flake8 | Прошёл для 23 целевых Python-файлов, включая оба новых теста и conftest |
+| Mypy | Прошёл для пяти core/schema/service/API-модулей с `--follow-imports=skip --ignore-missing-imports` |
+| JavaScript и whitespace | `node --check` целевых scripts и `git diff --check` прошли |
+
+- В `test_stats_acceptance.py` небольшие независимые SELECT сверяют все двенадцать current/previous метрик и каждый bucket, а затем их суммы, cohort, доставляемость и live. `MIN` сообщений и ошибок вычисляется по всей сохранённой истории до применения границ. Fixtures различают self/admin-selected/admin-all, перенос владельца и устаревшие audit FK, коллизии operation_id по пользователям/событиям, неупорядоченное добавление истории, старое первое подтверждение и возврат к статусу, поздние callbacks и текущие статусы сообщений.
+- Те же тесты используют реальный JWT `api_router` с изолированной PostgreSQL: 31 января → 28/29 февраля, отказ 422 при превышении на микросекунду, пустой и открытый диапазон, DST и timezone соединения, одинаковый 403 для чужого существующего/несуществующего владельца. `app.main` и production lifespan не запускаются.
+- В `test_stats_concurrency.py` scoped/admin-all SELECT сервиса обёрнут только тестовой advisory CTE с сохранением типизированных binds. `pg_locks` подтверждает ожидание до и после реального commit writer; завершившийся statement возвращает полностью прежний snapshot current/previous/trend/cohort, следующий запрос без обёртки видит изменения в той же READ COMMITTED-транзакции. Это не доказательство порядка отдельных CTE и не конкурентный HTTP/auth-тест.
+- Другой сценарий вызывает настоящие обработчики start существующего аккаунта → finish → ban → ban с реальными SQL/CRUD/commit. Writer приостановлен перед commit, а неизменённые summary/live завершают чтение прежних данных при удерживаемых writer блокировках. Reader остаётся в READ ONLY через commit writer. Проверены ответы, статусы, audit, сохранение message/user/старой сессии и исходный расход attempts, включая повторный ban. Сравнение каталогов таблиц, колонок/defaults, индексов и ограничений до/после относится только к собственной UUID-схеме, не к production parity.
+- Изменения этой фазы ограничены двумя новыми тестами, runbook и документацией. Runtime-код, настройки БД, `.env`, миграции, индексы и coverage-даты не менялись. Защищённый `tests/integration/conftest.py` сохранён; оба его режима повторно использованы. Перед/после совместного прогона совпали `git hash-object` conftest (`26eacfb6df9729b378157845a36e5d1bda2259a9`), StatsService, SessionErrorAudit, stats API, ext session и модели Log. Это подтверждение неизменности этих файлов за прогон, не сравнение с production.
+
+**Окружение и cleanup:**
+
+- Создана отдельная PostgreSQL **12.22**, database `o3go_stats_test`, role `stats_test`, loopback-порт **64965**. Docker context `desktop-linux` использует локальный Unix socket. Image `postgres:12`, ID `sha256:12f2b0a907b7b3797c1eb5fcd5f39bc8734817b69bb24fec7abad20aa7a88076`.
+- Собственный контейнер `o3go-stats-phase5-cEJcxy`, ID `3c3d9e3fa4aff61239c8b9319c80124011efd0ef7b98c027a2068ffa4ba7bd42`, labels `o3go.test=stats-phase5`, `o3go.test_run=stats-phase5.cEJcxy`; mounts отсутствовали, данные находились в tmpfs 512 MiB. После тестов отдельная READ ONLY-проверка вернула 0 объектов public и 0 пользовательских тестовых схем. Контейнер остановлен по точному ID после повторной проверки label; `--rm` удалил только собственный контейнер, отсутствие подтверждено фильтром по ID.
+- Внешний Python **3.11.14** использован из `stats-phase1/venv`, без установки пакетов в проект. CWD/HOME/TMPDIR: `/var/folders/71/5hvxcjj52vz0_t_49hcz6shm0000gn/T/opencode/stats-phase5.cEJcxy`; перед запуском каталог проверен как пустой. `env -i`, фиктивный DSN приложения на порту 1 и запрет startup DDL исключают чтение рабочей `.env` и соединение приложения с рабочей БД. Единственный настоящий DSN задавался защищённым integration fixtures.
+
+**Фактическая команда совместной Python-приёмки:** выполнялась из указанного временного CWD. Контейнер уже остановлен; для повторения нельзя переиспользовать порт без проверки нового собственного тестового экземпляра. Пароли в этой команде синтетические, не credentials рабочей системы.
+
+```bash
+ROOT=/Users/alex/Development/o3go/o3go_wa
+RUN=/var/folders/71/5hvxcjj52vz0_t_49hcz6shm0000gn/T/opencode/stats-phase5.cEJcxy
+PY=/var/folders/71/5hvxcjj52vz0_t_49hcz6shm0000gn/T/opencode/stats-phase1/venv/bin/python
+env -i PATH=/usr/bin:/bin:/usr/sbin:/sbin HOME="$RUN" TMPDIR="$RUN" XDG_CACHE_HOME="$RUN" \
+  PYTHONDONTWRITEBYTECODE=1 PYTHONNOUSERSITE=1 PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 \
+  PYTHONPATH="$ROOT:$ROOT/app" LOG_NAME=o3go_stats_phase5_tests LOG_LEVEL=WARNING LOG_STDOUT=false \
+  SECRET_KEY=stats-phase5-synthetic-only \
+  POSTGRES_DSN=postgresql+asyncpg://stats_test:synthetic@127.0.0.1:1/o3go_stats_test \
+  DATABASE_CREATE_ALL=false DATABASE_DELETE_ALL=false MESSAGE_API_URL=http://127.0.0.1:1 \
+  STATS_COVERAGE_STARTS='{}' STATS_TEST_ALLOW_SCHEMA_CREATE=1 \
+  STATS_TEST_POSTGRES_DSN=postgresql+asyncpg://stats_test:stats-phase5-synthetic-only@127.0.0.1:64965/o3go_stats_test \
+  STATS_TEST_EXPLAIN_DIR="$RUN" \
+  "$PY" -c 'import app.api.v1.accounts; import pytest, sys; raise SystemExit(pytest.main(sys.argv[1:]))' \
+  -c /dev/null --rootdir="$ROOT" -p no:cacheprovider -p pytest_asyncio.plugin \
+  -o asyncio_mode=strict -o asyncio_default_fixture_loop_scope=function -q -ra \
+  "$ROOT/tests/test_stats_contract.py" "$ROOT/tests/test_stats_service.py" \
+  "$ROOT/tests/test_stats_settings.py" "$ROOT/tests/api/v1/test_stats.py" \
+  "$ROOT/tests/api/v1/test_stats_api.py" "$ROOT/tests/api/v1/test_user_options.py" \
+  "$ROOT/tests/integration/test_stats_fixtures.py" "$ROOT/tests/integration/test_stats_aggregates.py" \
+  "$ROOT/tests/integration/test_stats_edges.py" "$ROOT/tests/integration/test_stats_api_postgres.py" \
+  "$ROOT/tests/integration/test_stats_explain.py" "$ROOT/tests/test_session_error_audit.py" \
+  "$ROOT/tests/api/ext/v1/test_session_error.py" "$ROOT/tests/integration/test_session_error_transactions.py" \
+  "$ROOT/tests/test_log.py" "$ROOT/tests/api/v1/test_account_summary.py" \
+  "$ROOT/tests/api/v1/test_account_device.py" "$ROOT/tests/api/v1/test_account_missing_files.py" \
+  "$ROOT/tests/api/ext/v1/test_account_upload.py" "$ROOT/tests/api/ext/v1/test_session_device.py" \
+  "$ROOT/tests/integration/test_stats_acceptance.py" "$ROOT/tests/integration/test_stats_concurrency.py"
+```
+
+Baseline использовал первые 20 файлов без двух новых и без явного `STATS_TEST_EXPLAIN_DIR`. Отдельный прогон новых проверок использовал только последние два файла с теми же guards/bootstrap. Для mypy проверены `app/core/utc.py`, `app/schemas/stats.py`, `app/services/stats.py`, `app/services/session_error.py`, `app/api/v1/stats.py`; cache размещён во временном CWD. Flake8 дополнительно охватил settings, options, UserCRUD, ext session, относящиеся к stats/session.error тесты и conftest. Python suite целиком и прежние несвязанные `session_device_ui.test.js` в эту выборку не входят.
+
+**Повтор EXPLAIN на прежнем синтетическом наборе:** 3 пользователя, 2 аккаунта, 2 сессии, 2 000 сообщений, 6 600 логов, 300 error operations; ANALYZE только тестовых таблиц. Каждый запрос вернул одну строку; измерения не задают SLA.
+
+| Запрос | Область | Execution, мс | Planning, мс | Shared hit blocks |
+|---|---|---:|---:|---:|
+| Q1 summary | scoped | 19.101 | 3.900 | 3300 |
+| Q2 live | scoped | 0.035 | 0.159 | 1 |
+| Q1 summary | admin-all | 29.371 | 3.964 | 6306 |
+| Q2 live | admin-all | 0.052 | 0.155 | 1 |
+
+Артефакт нового прогона: `<RUN>/stats-phase3-explain.json` (старое имя файла сохранено тестом; это результат фазы 5). Во время совместного прогона параллельно выполнялись локальные browser-проверки; новые и архивные времена нельзя интерпретировать как сопоставимый performance benchmark. Репрезентативность объёма и численные критерии стоимости ещё не согласованы.
+
+Frontend повторно проверен командами `node --test tests/shared_auth.test.js tests/dashboard_api.test.js tests/dashboard_mock.test.js` и `node tests/dashboard_browser.cjs` с прежними внешними `NODE_PATH`/`PLAYWRIGHT_BROWSERS_PATH`. Новый проверенный `DASHBOARD_SCREENSHOTS=<RUN>/browser.iIsaya`; отчёт `<RUN>/browser.iIsaya/dashboard-phase4-browser-report.json` и 24 screenshots относятся к фазе 5, несмотря на историческое имя отчёта. Ограничения Chromium, HTTP/clock fixtures, синтетических BFCache/storage событий и seriesClick вместо SVG pointer-проверки сохраняются; production API не вызывался.
+
+**Незакрытые условия:** явно разрешённый read-only endpoint либо обезличенные metadata рабочей БД, retention/доступная история, согласованные объёмы и критерии стоимости, разрешённые релиз/откат/окружение, подтверждение аудита и coverage на всех обслуживающих workers. [rollout.md](rollout.md) фиксирует операторский порядок и риски startup DDL, superuser, scheduler и bind mounts, но не выполняет эти действия. Согласие на локальную фазу 5 не заменяет эти сведения и не является разрешением на production deployment.
+
+## Критерии приёмки
+
+Ниже отмечена локальная приёмка кода на изолированных fixtures и browser-ответах. Эти отметки не закрывают production metadata, стоимость на согласованном рабочем объёме или rollout из фазы 5.
+
+- [x] Member не получает чужие агрегаты, options, сведения о существовании пользователей либо приватный контекст ошибок; admin-all и admin-selected дают ожидаемые области.
+- [x] UTC, `[start,end)`, необязательный конец, 24-часовой порог, ровно календарный месяц, 31 января/високосный февраль, обратный/будущий диапазон и нулевой интервал проверены на API и PostgreSQL; смена timezone соединения и DST не меняют границы сравнения и UTC-сериализацию.
+- [x] При принятом допущении каждая session.status/account.status с целевым статусом учитывается как переход, а обычные *.update не увеличивают завершения/баны. Первые подтверждения сообщений и операции с несколькими error-записями считаются согласно определениям; обработчики статусов и attempts не переписаны ради stats.
+- [x] Для наблюдаемых метрик totals равны сумме trend; предыдущий диапазон рассчитывается тем же алгоритмом. При неполном покрытии возвращаются NULL и причины, не ложные нули.
+- [x] Сообщение, созданное до периода, но доставленное внутри него, увеличивает delivered событийного ряда, но не попадает в status-cohort; сообщение из периода с доставкой позже влияет на текущий status-cohort при последующем чтении.
+- [x] account.error с HTTP 201 учитывается как сбой операции, несколько ошибок одного operation_id — как одна операция; ошибка без созданного аккаунта доступна своей области. Дата первого сбоя ищется вне границ отчёта.
+- [x] Live соответствует предикату отбора по БД, не меняется при изменении исторического периода, корректно обрабатывает cooldown с payload и без него и сообщает остаток other. Вычисления не сканируют файловую систему и не резервируют аккаунты.
+- [x] Проверены SQL на PostgreSQL с существующей ORM-схемой и browser-сценарии; `StatsService` не содержит мутаций/commit, миграции и рабочая схема log ради stats не изменялись. Production parity не заявляется. Старые известные несвязанные сбои не включены в результат этой выборки и не выдаются за исправленные.
+
+## Риски
+
+| Риск | Влияние | Мера |
+|---|---|---|
+| Часть событий не собиралась либо дата начала учёта неизвестна. | Высокое: отсутствие учёта может выглядеть как отсутствие активности. | Coverage, NULL и запрет выдуманного backfill; audit_gaps используется только для ошибок без operation_id. |
+| Физическое удаление или перенос владельца меняет прошлые показатели. | Высокое для стабильных отчётов. | Явный контракт сохранившихся данных; immutable ledger/retention обсуждается отдельно. |
+| Допущение об отсутствии одинаковых переходов подряд нарушается фактическими данными. | Высокое: простой подсчёт статусных событий завысит число операций. | Явно зафиксировать допущение; защиту от повторов и изменение бизнес-логики обсуждать отдельной задачей, а не обещать их в stats. |
+| Поиск первых подтверждений и ошибок дорог на большом аудите при неизменной схеме. | Среднее/высокое в зависимости от объёма. | Ограниченный набор кандидатов, использование существующих индексов и EXPLAIN; невозможность достичь нужной скорости выносится на отдельное согласование без скрытого DDL. |
+| Локальный Message учёт не охватывает весь Android-трафик внешнего Message API. | Высокое при названии «весь трафик сервиса». | Указать локальный охват в API; отдельная интеграция требует собственного контракта и источника данных. |
+
+## Зависимости
+
+- Явно предоставленный read-only endpoint рабочей БД либо операторский вывод схемы, применённых миграций, индексов, размеров таблиц и доступного периода аудита нужен для перенесённой проверки фазы 3; изолированная PostgreSQL эти сведения не заменяет.
+- Для охвата session.error требуется обновить все обслуживающие эти маршруты workers до объявления даты его сбора; обычные producers и jobs ради stats не перерабатываются.
+- Отдельная PostgreSQL 12 и fixtures готовы; агрегаты, реальные HTTP-маршруты и EXPLAIN проверены на ней в фазе 3. Production-DSN и одни лишь SQLite/mocks для такой проверки не используются.
+- Размещение `StatsService` и узкое исключение для аналитических SELECT согласованы и отражены в проектных конвенциях. Оставшиеся вопросы исторической семантики требуют подтверждения; исправление side effects повторных вызовов и расширение на внешний Message API не являются скрытой частью stats.
+
+## Документационные источники SQL
+
+- [PostgreSQL 12: generate_series](https://www.postgresql.org/docs/12/functions-srf.html) подтверждает включение верхней границы и необходимость явного исключения end.
+- [PostgreSQL 12: date/time functions](https://www.postgresql.org/docs/12/functions-datetime.html) описывает date_trunc, UTC-преобразования и различие now/statement_timestamp.
+- [PostgreSQL 12: transaction isolation](https://www.postgresql.org/docs/12/transaction-iso.html) подтверждает единый snapshot одного SELECT при READ COMMITTED.
+- [PostgreSQL 12: WITH queries](https://www.postgresql.org/docs/12/queries-with.html) описывает управление materialization; NOT MATERIALIZED выбран для predicate pushdown, а не как обещание оптимального плана.
+
+## Нерешённые вопросы и переход к следующей фазе
+
+1. Подходит ли первая версия как аналитика сохранившихся данных с текущим владельцем, или показатели прошлого должны переживать удаление/перенос? Во втором случае понадобится отдельное решение по retention и ownership-снимкам, а Q1 нельзя объявлять окончательным.
+2. Считать ли административно назначенные статусы подтверждениями сообщений? В реализованном Q1 они входят как зарегистрированные сервером состояния; вариант только ext_api потребует явного изменения семантики.
+3. Каковы реальные схема, индексы, даты начала доступного учёта, объёмы журнала и требуемая задержка ответа? Проверка перенесена в фазу 3 и остаётся открытой до получения явно предоставленного read-only endpoint рабочей БД либо операторского вывода; coverage и численный SLA не заполняются вымышленными значениями.
+4. Пользователь подтвердил фазу 5 после завершения фазы 4. Локальная приёмка завершена: новый совместный прогон 501 целевой Python-проверки, повторные 156 Node-тестов и 112 browser-сценариев прошли. Первые два пункта фазы 5 закрыты, третий выполнен частично, четвёртый о rollout открыт. Для продолжения нужны перечисленные операторские сведения и разрешённое окружение, а не повторное согласие на уже выполненные локальные проверки. Deployment не выполнялся.
+5. Операционный пункт фазы 2 остаётся открытым до фактического rollout и подтверждения оператором даты начала production-учёта session.error; готовность кода и согласие на следующую фазу не заменяют эти действия. Первый пункт фазы 3 о рабочей БД также остаётся открытым, полного завершения фазы 3 нет.
+
+Реализация плана одобрена пользователем. Имя stats, `StatsService` в существующем слое `app/services/`, узкое исключение для read-only аналитических SELECT, отказ от отдельного пакета запросов и CRUD статистики, неизменность схемы log и допущение об отсутствии одинаковых переходов подряд больше не являются открытыми вопросами. Правила поздних/чередующихся бизнес-переходов остаются существующими и не переопределяются в этой задаче.
