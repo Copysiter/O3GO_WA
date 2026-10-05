@@ -1,25 +1,19 @@
 import asyncio
-import errno
-import json
-import sys
 import uuid
 import time
 import aiofiles
 
-from collections.abc import Collection, Mapping
-from enum import Enum
-from traceback import walk_tb
+from collections.abc import Collection
 from typing import Any, Literal
 from pathlib import Path
 from urllib.parse import urljoin
-from datetime import date, datetime
+from datetime import datetime
 
 from fastapi import (
     Request, APIRouter, Depends, UploadFile, File, HTTPException, status
 )
 from fastapi.responses import FileResponse
 from sqlalchemy import select, update, func, or_
-from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import aliased
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -40,16 +34,6 @@ PROFILE_UPLOAD_DIR = Path('upload/wa/profile')
 PROFILE_UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
 router = APIRouter()
-
-_UPLOAD_PARAMETER_FIELDS = (
-    "number", "type", "limit", "cooldown", "geo",
-    *(f"info_{i}" for i in range(1, 9)),
-)
-_UPLOAD_SNAPSHOT_FIELDS = (
-    "id", "uuid", "user_id", "file_name", "profile_file_name", "status",
-    "attempts", "session_count", "created_at", "updated_at",
-    *_UPLOAD_PARAMETER_FIELDS,
-)
 
 
 def _build_account_filter_conditions(filter_obj, model_alias, user_id):
@@ -195,221 +179,11 @@ def _prepare_upload_data(
     return data
 
 
-def _safe_upload_text(value: str) -> str:
-    """Represent NUL and lone surrogates as printable escapes for JSONB."""
-    text = value.encode("utf-8", errors="backslashreplace").decode("utf-8")
-    return text.replace("\x00", r"\u0000")
-
-
-def _safe_upload_value(value: Any) -> str | int | bool | None:
-    """Encode known scalar metadata without stringifying arbitrary objects."""
-    if isinstance(value, Enum):
-        value = value.value
-    if isinstance(value, str):
-        return _safe_upload_text(value)
-    if value is None or isinstance(value, (int, bool)):
-        return value
-    if isinstance(value, (datetime, date)):
-        return _safe_upload_text(value.isoformat())
-    if isinstance(value, (uuid.UUID, Path)):
-        return _safe_upload_text(str(value))
-    return "[omitted]"
-
-
-def _upload_snapshot(
-    values: Mapping[str, Any] | None,
-) -> dict[str, Any] | None:
-    """Copy only approved account fields into JSON-compatible metadata."""
-    if values is None:
-        return None
-    return {
-        field: _safe_upload_value(values[field])
-        for field in _UPLOAD_SNAPSHOT_FIELDS if field in values
-    }
-
-
-def _upload_file_metadata(file: UploadFile | None) -> dict[str, Any] | None:
-    """Describe an upload without reading its body or copying its headers."""
-    if file is None:
-        return None
-    return {
-        "filename": _safe_upload_value(file.filename),
-        "content_type": _safe_upload_value(file.content_type),
-        "size": _safe_upload_value(file.size),
-    }
-
-
-def _upload_error_details(error: BaseException) -> dict[str, Any]:
-    """Keep diagnostic codes and stack locations, not SQL or raw messages."""
-    details: dict[str, Any] = {
-        "type": _safe_upload_text(type(error).__name__),
-        "message": "Upload operation failed",
-        "traceback": [
-            {
-                "file": _safe_upload_text(frame.f_code.co_filename),
-                "function": _safe_upload_text(frame.f_code.co_name),
-                "line": line,
-            }
-            for frame, line in walk_tb(error.__traceback__)
-        ],
-    }
-    if isinstance(error, SQLAlchemyError):
-        details["message"] = "Database operation failed"
-    elif isinstance(error, HTTPException):
-        details["message"] = "HTTP request processing failed"
-        if isinstance(error.status_code, int):
-            details["http_status"] = error.status_code
-    elif isinstance(error, OSError):
-        details["message"] = "Operating system operation failed"
-
-    pending = [error]
-    visited: set[int] = set()
-    cause_types = []
-    while pending:
-        current = pending.pop()
-        if id(current) in visited:
-            continue
-        visited.add(id(current))
-        if current is not error:
-            cause_types.append(_safe_upload_text(type(current).__name__))
-        sqlstate = (
-            getattr(current, "sqlstate", None)
-            or getattr(current, "pgcode", None)
-        )
-        if (
-            isinstance(sqlstate, str) and len(sqlstate) == 5
-            and sqlstate.isascii() and sqlstate.isalnum()
-        ):
-            details.setdefault("sqlstate", sqlstate)
-        for field in (
-            "schema_name", "table_name", "column_name", "constraint_name",
-        ):
-            value = getattr(current, field, None)
-            if isinstance(value, str):
-                details.setdefault(field, _safe_upload_text(value))
-        if isinstance(current, OSError):
-            if isinstance(current.errno, int):
-                details.setdefault("errno", current.errno)
-                details.setdefault("errno_name", errno.errorcode.get(
-                    current.errno
-                ))
-            if current.filename is not None:
-                details.setdefault(
-                    "filename", _safe_upload_value(current.filename)
-                )
-        original = getattr(current, "orig", None)
-        if isinstance(original, BaseException):
-            pending.append(original)
-        cause = current.__cause__
-        if cause is None and not current.__suppress_context__:
-            cause = current.__context__
-        if isinstance(cause, BaseException):
-            pending.append(cause)
-    details["cause_types"] = cause_types
-    return details
-
-
-def _build_upload_error_context(
-    *,
-    request: Request,
-    obj_in: schemas.AccountUpload,
-    provided_fields: Collection[str],
-    file: UploadFile,
-    operation_id: uuid.UUID,
-    user_id: int,
-    branch: Literal["create", "update"] | None,
-    stage: str,
-    db_outcome: Literal["not_committed", "committed", "unknown"],
-    error: BaseException,
-    profile_file: UploadFile | None = None,
-    before: Mapping[str, Any] | None = None,
-    requested: Mapping[str, Any] | None = None,
-    returned: Mapping[str, Any] | None = None,
-) -> dict[str, Any]:
-    """Snapshot safe diagnostics without retaining request or ORM objects."""
-    known_fields = set(_UPLOAD_PARAMETER_FIELDS) | {
-        "hash", "file", "profile_file",
-    }
-    return {
-        "operation_id": _safe_upload_value(operation_id),
-        "user_id": _safe_upload_value(user_id),
-        "branch": _safe_upload_value(branch),
-        "stage": _safe_upload_value(stage),
-        "db_outcome": _safe_upload_value(db_outcome),
-        "request": {
-            "method": _safe_upload_text(request.method),
-            "path": _safe_upload_text(request.scope["path"]),
-            "parameters": _upload_snapshot(obj_in.model_dump(
-                include=set(_UPLOAD_PARAMETER_FIELDS)
-            )),
-            "provided_fields": sorted(set(provided_fields) & known_fields),
-            "hash_nonempty": bool(obj_in.hash),
-            "files": {
-                "archive": _upload_file_metadata(file),
-                "profile": _upload_file_metadata(profile_file),
-            },
-        },
-        "storage": {
-            "archive_directory": _safe_upload_value(UPLOAD_DIR),
-            "profile_directory": _safe_upload_value(PROFILE_UPLOAD_DIR),
-        },
-        "before": _upload_snapshot(before),
-        "requested": _upload_snapshot(requested),
-        "returned": _upload_snapshot(returned),
-        "error": _upload_error_details(error),
-    }
-
-
 async def _save_upload_file(file: UploadFile, file_path: Path) -> None:
     """Write and close a new upload without removing existing artifacts."""
     content = await file.read()
     async with aiofiles.open(file_path, "wb") as destination:
         await destination.write(content)
-
-
-async def _rollback_upload_transaction(
-    session: AsyncSession,
-) -> dict[str, Any]:
-    """Release the transaction before audit, retaining safe error details."""
-    errors: dict[str, Any] = {}
-    if not session.in_transaction():
-        return errors
-    try:
-        await session.rollback()
-    except (Exception, asyncio.CancelledError) as rollback_error:
-        errors["rollback"] = _upload_error_details(rollback_error)
-        try:
-            await session.close()
-        except (Exception, asyncio.CancelledError) as close_error:
-            errors["close"] = _upload_error_details(close_error)
-    return errors
-
-
-async def _emit_upload_audit_failure(
-    *,
-    operation_id: uuid.UUID,
-    stage: str,
-    db_outcome: str,
-    error: BaseException,
-    logger_error: BaseException,
-) -> None:
-    """Emit a bounded emergency event without request data or raw errors."""
-    event = {
-        "event": "account.error.audit_unavailable",
-        "operation_id": str(operation_id),
-        "stage": _safe_upload_text(stage),
-        "db_outcome": _safe_upload_text(db_outcome),
-        "error_type": _safe_upload_text(type(error).__name__),
-        "logger_error_type": _safe_upload_text(type(logger_error).__name__),
-    }
-    try:
-        await asyncio.to_thread(sys.stderr.write, json.dumps(event) + "\n")
-    except (Exception, asyncio.CancelledError) as output_error:
-        error.add_note(
-            "Account upload audit and emergency output unavailable "
-            f"(operation_id={operation_id}, "
-            f"output_error={_safe_upload_text(type(output_error).__name__)})."
-        )
 
 
 def _account_not_found() -> HTTPException:
@@ -513,120 +287,22 @@ async def upload_archive(
     Ошибки cleanup журналируются независимо и не отменяют успешную загрузку.
     """
     actor_id = user.id
-    operation_id = uuid.uuid4()
+    audit = log_service.operation(action="account.upload", user_id=actor_id)
     before: dict[str, Any] | None = None
     requested: dict[str, Any] | None = None
     returned: dict[str, Any] | None = None
     branch: Literal["create", "update"] | None = None
-    stage = "validate"
-    db_outcome: Literal["not_committed", "committed", "unknown"] = (
-        "not_committed"
-    )
     provided_fields: set[str] = set()
     files_written: list[str] = []
-    session_release_failed = False
-    transaction_cleanup_errors: dict[str, Any] = {}
 
-    async def finalize_error(
-        error: BaseException, *, cleanup: dict[str, Any] | None = None,
-    ) -> bool:
-        """Audit after releasing the business session, preserving the error."""
-        nonlocal session_release_failed
-        context: dict[str, Any] = {
-            "operation_id": str(operation_id),
-            "user_id": actor_id,
-            "branch": branch,
-            "stage": stage,
-            "db_outcome": db_outcome,
-            "files_written": list(files_written),
-            "error": {
-                "type": _safe_upload_text(type(error).__name__),
-                "message": "Upload operation failed",
-            },
-        }
-        cleanup_errors = await _rollback_upload_transaction(session)
-        transaction_cleanup_errors.update(cleanup_errors)
-        if "close" in cleanup_errors:
-            session_release_failed = True
-        context["transaction_cleanup_errors"] = dict(
-            transaction_cleanup_errors
+    def audit_details(cleanup: dict[str, Any] | None = None) -> dict[str, Any]:
+        return log_service.upload_details(
+            request=request, obj_in=obj_in, provided_fields=provided_fields,
+            file=file, profile_file=profile_file, branch=branch,
+            before=before, requested=requested, returned=returned,
+            files_written=files_written, archive_directory=UPLOAD_DIR,
+            profile_directory=PROFILE_UPLOAD_DIR, cleanup=cleanup,
         )
-        transaction_released = (
-            not session_release_failed and not session.in_transaction()
-        )
-        try:
-            context.update(_build_upload_error_context(
-                request=request,
-                obj_in=obj_in,
-                provided_fields=provided_fields,
-                file=file,
-                profile_file=profile_file,
-                operation_id=operation_id,
-                user_id=actor_id,
-                branch=branch,
-                stage=stage,
-                db_outcome=db_outcome,
-                before=before,
-                requested=requested,
-                returned=returned,
-                error=error,
-            ))
-            if cleanup is not None:
-                context["cleanup"] = {
-                    key: _safe_upload_value(value)
-                    for key, value in cleanup.items()
-                }
-            if transaction_released:
-                account_id = before["id"] if before is not None else None
-                if account_id is None and db_outcome == "committed":
-                    account_id = returned["id"] if returned else None
-                await log_service.record_independent(
-                    event="account.error",
-                    source="ext_api",
-                    account_id=account_id,
-                    user_id=actor_id,
-                    context=context,
-                )
-                return True
-        except (Exception, asyncio.CancelledError) as journal_error:
-            context["error_journal_error"] = _upload_error_details(
-                journal_error
-            )
-
-        # A failed close leaves the transaction outcome uncertain: opening an
-        # independent audit transaction could wait on its account foreign key.
-        try:
-            await asyncio.to_thread(
-                logger.error,
-                "Account upload error journal unavailable",
-                event=E.SYSTEM.API.ERROR,
-                extra=context,
-            )
-        except (Exception, asyncio.CancelledError) as logger_error:
-            await _emit_upload_audit_failure(
-                operation_id=operation_id, stage=stage,
-                db_outcome=db_outcome, error=error, logger_error=logger_error,
-            )
-        return transaction_released
-
-    async def report_error(
-        error: BaseException, *, cleanup: dict[str, Any] | None = None,
-    ) -> bool:
-        finalizer = asyncio.create_task(finalize_error(error, cleanup=cleanup))
-        cancellation: asyncio.CancelledError | None = None
-        while True:
-            try:
-                # Dependency teardown must not race with this session's audit.
-                released = await asyncio.shield(finalizer)
-                break
-            except asyncio.CancelledError as cancelled:
-                if finalizer.cancelled():
-                    raise
-                if cancellation is None:
-                    cancellation = cancelled
-        if cancellation is not None:
-            raise cancellation
-        return released
 
     try:
         provided_fields = set((await request.form()).keys())
@@ -646,15 +322,17 @@ async def upload_archive(
                 detail="The file must have a .txt extension"
             )
 
-        stage = "lookup"
+        audit.stage = "lookup"
         await session.begin()
         before = await crud.account.get_upload_snapshot(
             db=session, number=obj_in.number, user_id=actor_id
         )
+        if before is not None:
+            audit.account_id = before["id"]
         await session.commit()
         branch = "update" if before is not None else "create"
 
-        stage = "validate"
+        audit.stage = "validate"
         timestamp = int(time.time())
         numbered_name = before is not None or bool(obj_in.number)
         file_name = (
@@ -680,17 +358,17 @@ async def upload_archive(
         if before is not None:
             requested["id"] = before["id"]
 
-        stage = "write_archive"
+        audit.stage = "write_archive"
         await _save_upload_file(file, UPLOAD_DIR / file_name)
         files_written.append("archive")
         if profile_file is not None and profile_file_name is not None:
-            stage = "write_profile"
+            audit.stage = "write_profile"
             await _save_upload_file(
                 profile_file, PROFILE_UPLOAD_DIR / profile_file_name
             )
             files_written.append("profile")
 
-        stage = "db_write"
+        audit.stage = "db_write"
         await session.begin()
         if before is not None:
             account = await crud.account.update(
@@ -705,9 +383,9 @@ async def upload_archive(
                 db=session, obj_in=account_data, commit=False,
             )
 
-        stage = "verify_returning"
+        audit.stage = "verify_returning"
         account_values = vars(account) if account is not None else None
-        returned = _upload_snapshot(account_values)
+        returned = log_service.upload_snapshot(account_values)
         if (
             account_values is None or account_values.get("id") is None
             or (before is not None and account_values["id"] != before["id"])
@@ -717,8 +395,10 @@ async def upload_archive(
             or account_values.get("user_id") != actor_id
         ):
             raise RuntimeError("Account upload RETURNING verification failed")
+        if before is None:
+            audit.new_account_id = account_values["id"]
 
-        stage = "audit"
+        audit.stage = "audit"
         await log_service.record(
             session,
             event=f"account.{branch}",
@@ -728,19 +408,21 @@ async def upload_archive(
             status=account_values.get("status"),
             commit=False,
         )
-        stage = "prepare_response"
+        audit.stage = "prepare_response"
         response = schemas.AccountExternal.model_validate({
             **account_values, "user": response_user,
         })
-        stage = "commit"
-        db_outcome = "unknown"
+        audit.stage = "commit"
+        audit.db_outcome = "unknown"
         await session.commit()
-        db_outcome = "committed"
+        audit.db_outcome = "committed"
     except (Exception, asyncio.CancelledError) as error:
-        await report_error(error)
+        await log_service.report_error(
+            session, error, operation=audit, details=audit_details,
+        )
         raise
 
-    stage = "cleanup"
+    audit.stage = "cleanup"
     for kind, column, directory, profile in (
         ("archive", "file_name", UPLOAD_DIR, False),
         ("profile", "profile_file_name", PROFILE_UPLOAD_DIR, True),
@@ -764,14 +446,17 @@ async def upload_archive(
                     (directory / old_name).unlink, missing_ok=True,
                 )
         except (Exception, asyncio.CancelledError) as error:
-            released = await report_error(error, cleanup=cleanup)
+            released = await log_service.report_error(
+                session, error, operation=audit,
+                details=lambda: audit_details(cleanup),
+            )
             if isinstance(error, asyncio.CancelledError):
                 raise
             if not released:
                 break
 
-    if not session_release_failed and not session.in_transaction():
-        stage = "success_log"
+    if not audit.release_failed and not session.in_transaction():
+        audit.stage = "success_log"
         try:
             await asyncio.to_thread(
                 logger.info,
@@ -781,18 +466,20 @@ async def upload_archive(
                 extra={
                     "user_id": actor_id,
                     "account_id": response.id,
-                    "account_uuid": _safe_upload_value(response.uuid),
-                    "old_uuid": _safe_upload_value(
+                    "account_uuid": log_service.safe_value(response.uuid),
+                    "old_uuid": log_service.safe_value(
                         before.get("uuid") if before is not None else None
                     ),
-                    "file_name": _safe_upload_value(response.file_name),
-                    "profile_file_name": _safe_upload_value(
+                    "file_name": log_service.safe_value(response.file_name),
+                    "profile_file_name": log_service.safe_value(
                         response.profile_file_name
                     ),
                 },
             )
         except (Exception, asyncio.CancelledError) as error:
-            await report_error(error)
+            await log_service.report_error(
+                session, error, operation=audit, details=audit_details,
+            )
             if isinstance(error, asyncio.CancelledError):
                 raise
     return response

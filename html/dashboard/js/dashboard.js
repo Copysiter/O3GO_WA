@@ -309,34 +309,34 @@
 
     function coverageReason(group, previous) {
         var code = previous ? group.previousReason : group.currentReason;
-        var reasons = {
-            collection_start_unknown: 'начало сбора не подтверждено',
-            before_collection_start: 'период раньше начала сбора',
-            period_crosses_collection_start: 'часть периода раньше начала сбора',
-            missing_operation_id: 'есть записи без идентификатора операции'
-        };
-        return reasons[code] || 'нет полного учёта';
+        return code === 'missing_operation_id' ? 'есть записи ошибок без идентификатора операции' :
+            'события нельзя надёжно посчитать по сохранённым записям';
+    }
+
+    function coverageParts(group) {
+        var parts = [];
+        if (group.currentState !== 'recorded') parts.push('выбранный период — ' + coverageReason(group, false));
+        if (group.previousState !== 'recorded') parts.push('сравнение — ' + coverageReason(group, true));
+        return parts;
     }
 
     function metricCoverage(key) {
-        if (!snapshot || !snapshot.coverage) return '';
+        var note = $('#dashboard-history-note').text();
+        if (!snapshot || !snapshot.coverage) return note;
         var name = Object.keys(coverageGroups).filter(function (group) {
             return coverageGroups[group].keys.indexOf(key) !== -1;
         })[0];
         var group = name && snapshot.coverage[name];
-        if (!group || group.currentState === 'recorded') return '';
-        return 'Учёт за период: ' + coverageReason(group, false) + '. Неизвестные значения обозначены «—».';
+        var parts = group ? coverageParts(group) : [];
+        return note + (parts.length ? ' Неполный учёт: ' + parts.join('; ') + '. Неизвестные значения обозначены «—».' : '');
     }
 
     function renderCoverage() {
         var items = [];
         if (snapshot && snapshot.coverage && !demo) Object.keys(coverageGroups).forEach(function (name) {
             var group = snapshot.coverage[name];
-            var parts = [];
-            if (group.currentState !== 'recorded') parts.push('выбранный период — ' + coverageReason(group, false));
-            if (group.previousState !== 'recorded') parts.push('сравнение — ' + coverageReason(group, true));
-            if (parts.length) items.push('<li>' + encode(coverageGroups[name].label + ': ' + parts.join('; ') +
-                (group.from ? '. Сбор с ' + displayDate(group.from) + ' UTC' : '')) + '.</li>');
+            var parts = coverageParts(group);
+            if (parts.length) items.push('<li>' + encode(coverageGroups[name].label + ': ' + parts.join('; ')) + '.</li>');
         });
         $('#dashboard-coverage').prop('hidden', !items.length).html(items.length ?
             '<strong>Неизвестный или неполный учёт.</strong> «—» не означает ноль. Данные текущих статусов сообщений доступны отдельно.' +

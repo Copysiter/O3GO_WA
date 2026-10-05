@@ -2,7 +2,7 @@
 template: integrations
 version: 1
 status: complete
-updated: "2026-08-08"
+updated: "2026-10-05"
 required_sections:
   - approach
   - systems
@@ -35,8 +35,8 @@ optional_sections:
 **Внешние системы рассылки** — сторонние потребители внешнего API.
 Протокол: REST через `/ext/api/v1/`. Аутентификация через API Key. Используют те же эндпоинты, что и Android-приложения.
 
-**Nginx** — обратный прокси и сервер статических файлов.
-Протокол: HTTP. Проксирует запросы к FastAPI-приложению, обслуживает статические файлы из `html/`. Конфигурация в `services/nginx.conf`.
+**Nginx** — сервер статических файлов в текущей конфигурации проекта.
+Протокол: HTTP. `services/nginx.conf` обслуживает файлы из `html/` и не содержит действующего API proxy. Адрес API выбирается в `html/static/auth.js`; фактическая production-маршрутизация требует операторского подтверждения.
 
 ---
 

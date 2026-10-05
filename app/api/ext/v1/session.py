@@ -9,8 +9,7 @@ import app.deps as deps
 import app.crud as crud
 import app.models as models
 import app.schemas as schemas
-from app.services.log import log_service
-from app.services.session_error import SessionErrorAudit
+from app.services.log import LogOperation, log_service
 from app.models.session import AccountStatus, SessionStatus
 
 
@@ -33,10 +32,10 @@ async def _update_session_status(
     info_7: str | None = None,
     info_8: str | None = None,
     status: AccountStatus,
-    audit: SessionErrorAudit | None = None,
+    audit: LogOperation | None = None,
 ) -> schemas.SessionStatusResponse:
     """Обновляет статус сессии, проверяя связанный аккаунт."""
-    audit = audit or SessionErrorAudit(
+    audit = audit or log_service.operation(
         action="session.ban" if status == AccountStatus.BANNED
         else "session.finish",
         user_id=user_id,
@@ -206,7 +205,7 @@ async def start_session(
     Query-параметр `api_key` сохраняется как device сессии и не заменяет
     аутентификацию через `X-Api-Key` или `x_api_key`.
     """
-    audit = SessionErrorAudit(action="session.start", user_id=user.id)
+    audit = log_service.operation(action="session.start", user_id=user.id)
     try:
         # Проверяем, нет ли уже сессии с таким ext_id
         audit.stage = "lookup_session"
@@ -341,7 +340,7 @@ async def start_session(
             msg_count=session.msg_count
         )
     except (Exception, asyncio.CancelledError) as error:
-        await audit.report(db, error)
+        await log_service.report_error(db, error, operation=audit)
         raise
 
 
@@ -385,7 +384,7 @@ async def finish_session(
     user: models.User = Depends(deps.get_user_by_api_key),
 ) -> schemas.SessionStatusResponse:
     """Помечает сессию как завершённую (AVAILABLE)."""
-    audit = SessionErrorAudit(action="session.finish", user_id=user.id)
+    audit = log_service.operation(action="session.finish", user_id=user.id)
     try:
         return await _update_session_status(
             db, id=id,
@@ -404,7 +403,7 @@ async def finish_session(
             info_8=info_8
         )
     except (Exception, asyncio.CancelledError) as error:
-        await audit.report(db, error)
+        await log_service.report_error(db, error, operation=audit)
         raise
 
 
@@ -448,7 +447,7 @@ async def ban_session(
     user: models.User = Depends(deps.get_user_by_api_key),
 ) -> schemas.SessionStatusResponse:
     """Помечает сессию как заблокированную (BANNED) и обновляет."""
-    audit = SessionErrorAudit(action="session.ban", user_id=user.id)
+    audit = log_service.operation(action="session.ban", user_id=user.id)
     try:
         return await _update_session_status(
             db, id=id,
@@ -467,5 +466,5 @@ async def ban_session(
             info_8=info_8
         )
     except (Exception, asyncio.CancelledError) as error:
-        await audit.report(db, error)
+        await log_service.report_error(db, error, operation=audit)
         raise

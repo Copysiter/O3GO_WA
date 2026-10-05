@@ -11,9 +11,6 @@ from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.sql.selectable import TextualSelect
 
-from app.core.settings.app_settings import (
-    StatsCoverageName, StatsCoverageStarts,
-)
 from app.core.utc import UTCDateTime
 from app.crud.user import user as user_crud
 from app.models.user import User
@@ -39,15 +36,10 @@ from app.schemas.stats import (
 
 
 _UTC_DATETIME = TypeAdapter(UTCDateTime)
-_COVERAGE_STARTS = TypeAdapter(StatsCoverageStarts)
-_METRIC_GROUPS: dict[StatsCoverageName, tuple[str, ...]] = {
-    "lifecycle": (
-        "opened", "finished", "session_bans", "account_bans", "auto_finished",
-    ),
-    "message_events": ("sent", "delivered", "undelivered", "failed"),
-    "account_errors": ("account_errors",),
-    "session_errors": ("session_errors",),
-}
+_COVERAGE_GROUPS = (
+    "lifecycle", "message_events", "account_errors", "session_errors",
+)
+_ERROR_GROUPS = ("account_errors", "session_errors")
 _MESSAGE_STATUSES: tuple[StatsMessageStatusName, ...] = (
     "sent", "delivered", "undelivered", "failed",
 )
@@ -343,37 +335,27 @@ FROM counts c CROSS JOIN p
 
     @staticmethod
     def _coverage_state(
-        start: datetime, end: datetime, since: datetime | None, gap: bool,
+        gap: bool,
     ) -> tuple[StatsCoverageState, str | None]:
-        if since is None:
-            return "unavailable", "collection_start_unknown"
-        if end <= since:
-            return "unavailable", "before_collection_start"
         if gap:
             return "partial", "missing_operation_id"
-        if start < since:
-            return "partial", "period_crosses_collection_start"
         return "recorded", None
 
-    @classmethod
-    def _mask_metrics(
-        cls, values: Mapping[str, Any], start: datetime, end: datetime,
-        starts: StatsCoverageStarts, gaps: set[str],
+    @staticmethod
+    def _mask_error_gaps(
+        values: Mapping[str, Any], gaps: set[str],
     ) -> StatsMetrics:
+        # Identifiable operations are only a subtotal when the period has a
+        # gap. Mask that error group in every bucket of the affected period.
         masked = dict(values)
-        if start < end:
-            for group, fields in _METRIC_GROUPS.items():
-                state, _ = cls._coverage_state(
-                    start, end, starts.get(group), group in gaps,
-                )
-                if state != "recorded":
-                    masked.update(dict.fromkeys(fields, None))
+        for group in _ERROR_GROUPS:
+            if group in gaps:
+                masked[group] = None
         return StatsMetrics.model_validate(masked)
 
     @classmethod
     def _build_summary(
         cls, result: Mapping[Any, Any], period: StatsPeriod, scope: StatsScope,
-        starts: StatsCoverageStarts,
     ) -> StatsSummary:
         raw_totals = {
             name: dict.fromkeys(StatsMetrics.model_fields, 0)
@@ -395,41 +377,30 @@ FROM counts c CROSS JOIN p
             if gap["invalid_rows"]:
                 gaps[gap["period"]].add(gap["metric_group"])
 
-        ranges = {
-            "current": (period.start_at, period.effective_end_at),
-            "previous": (
-                period.comparison.start_at, period.comparison.end_at,
-            ),
-        }
         totals = {
-            name: cls._mask_metrics(values, *ranges[name], starts, gaps[name])
+            name: cls._mask_error_gaps(values, gaps[name])
             for name, values in raw_totals.items()
         }
         trend = []
         for key in sorted(points):
             point = points[key]
             values = {name: point[name] for name in StatsMetrics.model_fields}
-            masked = cls._mask_metrics(
-                values, point["from_at"], point["to_at"],
-                starts, gaps["current"],
-            )
+            masked = cls._mask_error_gaps(values, gaps["current"])
             trend.append(StatsTrendPoint(
                 **masked.model_dump(), key=key,
                 from_at=point["from_at"], to_at=point["to_at"],
             ))
 
         coverage = {}
-        for group in _METRIC_GROUPS:
+        for group in _COVERAGE_GROUPS:
             current, current_reason = cls._coverage_state(
-                *ranges["current"], starts.get(group),
                 group in gaps["current"],
             )
             previous, previous_reason = cls._coverage_state(
-                *ranges["previous"], starts.get(group),
                 group in gaps["previous"],
             )
             coverage[group] = StatsCoverageGroup.model_validate({
-                "from": starts.get(group), "current_state": current,
+                "from": None, "current_state": current,
                 "previous_state": previous, "current_reason": current_reason,
                 "previous_reason": previous_reason,
             })
@@ -470,16 +441,16 @@ FROM counts c CROSS JOIN p
     async def get_summary(
         self, db: AsyncSession, *, current_user: User,
         query: StatsSummaryQuery,
-        coverage_starts: StatsCoverageStarts | None = None,
         now: datetime | None = None,
     ) -> StatsSummary:
-        """Read both periods and the cohort in one database snapshot."""
+        """Count retained events and the cohort in one database snapshot.
+
+        Recorded counts do not establish complete collection or a start date.
+        Error groups with missing operation IDs remain partial and nullable.
+        """
         period = self.resolve_period(query, now=now)
         scope = await self.resolve_scope(
             db, current_user=current_user, query=query,
-        )
-        starts = _COVERAGE_STARTS.validate_python(
-            {} if coverage_starts is None else coverage_starts,
         )
         scoped = scope.user_id is not None
         params: dict[str, Any] = {
@@ -492,7 +463,7 @@ FROM counts c CROSS JOIN p
             self._summary_statement(scoped=scoped), params,
         )
         return self._build_summary(
-            result.mappings().one(), period, scope, starts,
+            result.mappings().one(), period, scope,
         )
 
     async def get_live(

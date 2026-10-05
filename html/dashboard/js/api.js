@@ -176,6 +176,8 @@
     }
 
     function mapCoverage(raw) {
+        // "recorded" means countable retained events, not confirmed complete history.
+        // Keep the compatibility `from` field; the UI must not infer readiness from it.
         var states = ['recorded', 'partial', 'unavailable'];
         requireShape(isObject(raw) && states.indexOf(raw.current_state) !== -1 &&
             states.indexOf(raw.previous_state) !== -1);

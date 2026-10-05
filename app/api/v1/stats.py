@@ -12,7 +12,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app import deps
 from app.core.logger import E, logger
-from app.core.settings import settings
 from app.models import User
 from app.schemas.stats import (
     StatsLive, StatsLiveQuery, StatsSummary, StatsSummaryQuery,
@@ -88,12 +87,12 @@ async def get_summary(
 
     Administrators may select any owner or omit user_id for all owners.
     Example: ?start_at=2026-09-01T00:00:00Z&end_at=2026-09-02T00:00:00Z.
-    Unknown audit coverage remains null in the response.
+    Counts describe retained events, not completeness of audit collection.
+    Coverage dates are null; error counts with missing operation IDs are null.
     """
     try:
         return await stats_service.get_summary(
             db, current_user=current_user, query=query,
-            coverage_starts=settings.STATS_COVERAGE_STARTS,
         )
     except StatsPeriodError as error:
         raise HTTPException(status_code=422, detail=str(error)) from None

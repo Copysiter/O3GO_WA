@@ -144,7 +144,16 @@ class StatsDelivery(StatsModel):
 
 
 class StatsCoverageGroup(StatsModel):
-    from_at: UTCDateTime | None = Field(alias="from")
+    """Quality of retained counts, not completeness of event collection.
+
+    Recorded means retained data is countable, including zero events.
+    Partial with missing_operation_id masks the affected error group/period.
+    """
+
+    from_at: UTCDateTime | None = Field(
+        alias="from",
+        description="Always null: no observed collection start date is known.",
+    )
     current_state: StatsCoverageState
     previous_state: StatsCoverageState
     current_reason: str | None = None

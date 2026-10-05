@@ -74,9 +74,8 @@ app/
 │   └── version.py            Version (file tracking)
 ├── schemas/                  Pydantic-схемы валидации, включая DTO stats.py
 ├── services/
-│   ├── log.py                LogService (аудит событий)
-│   ├── session_error.py      SessionErrorAudit (независимый аудит ошибок через LogService)
-│   ├── stats.py              StatsService (период, scope, read-only агрегаты и coverage)
+│   ├── log.py                LogService, LogOperation (события и общий аудит ошибок)
+│   ├── stats.py              StatsService (период, scope, read-only сохранённая история)
 │   └── message/client.py     MessageService (внешний HTTP-клиент)
 ├── jobs/
 │   ├── scheduler.py          APScheduler конфигурация
@@ -93,13 +92,15 @@ app/
 │   ├── settings/             Конфигурация (5 групп настроек)
 │   ├── logger.py             Структурированное логирование
 │   ├── security.py           Хеширование паролей, JWT
-│   ├── utc.py                Общий RFC 3339 тип для settings и DTO
+│   ├── utc.py                Общий RFC 3339 тип и нормализация UTC для DTO
 │   └── utils.py              Утилиты
 ├── middlewares/              Middleware (логирование)
 └── utils/                    Утилиты (geo, text, test)
 ```
 
 Каждая доменная сущность следует паттерну: модель → схема → CRUD-репозиторий → обработчик(и) API.
+
+`app/services/log.py` содержит весь общий механизм ошибок upload/start/finish/ban: `operation`, `report_error`, безопасную диагностику, освобождение транзакции, защищённое завершение и независимую запись через CRUD. `LogOperation` хранит только состояние отдельного запроса. Upload передаёт тонкий callback в `LogService.upload_details`, сессионные обработчики не передают request-details. Прежний `app/services/session_error.py` удалён; legacy-логирование других account-эндпоинтов сохраняется.
 
 Статический дашборд и общие frontend-компоненты:
 
@@ -122,14 +123,14 @@ html/
 
 ## Структура тестов
 
-Тесты используют pytest, pytest-asyncio и локальные FastAPI-приложения с httpx ASGITransport. Агрегаты stats, реальные HTTP-маршруты и независимые транзакции session.error дополнительно проверяются на отдельно заданной PostgreSQL 12; тестовое приложение подключает api_router без app.main/production lifespan.
+Тесты используют pytest, pytest-asyncio и локальные FastAPI-приложения с httpx ASGITransport. Агрегаты stats, реальные HTTP-маршруты и независимые транзакции account.error/session.error дополнительно проверяются на отдельно заданной PostgreSQL 12; тестовое приложение подключает api_router без app.main/production lifespan.
 
-Основные расположения тестов, включая добавления фаз 1–5 stats:
+Основные расположения тестов, включая фазы 1–5 stats и последующую унификацию LogService:
 ```
 tests/
 ├── test_*.py                            Юнит-тесты сервисов, CRUD и утилит
-├── test_session_error_audit.py           Проверки SessionErrorAudit, отмен и fallback
-├── test_stats_settings.py                Проверки JSON coverage и UTC-валидации settings
+├── test_session_error_audit.py           Общий LogService-аудит, отмены и fallback; имя сохранено
+├── test_stats_settings.py                Отсутствие coverage-настройки, legacy env и общий UTC-тип
 ├── shared_auth.test.js                   Фактические auth.js/script.js в Node VM, контракт и гонки
 ├── dashboard_api.test.js                 DashboardApi: transport, DTO, scope/period и отмена
 ├── dashboard_mock.test.js                Регрессии явного demo-provider
@@ -146,11 +147,12 @@ tests/
     ├── conftest.py                      Opt-in PostgreSQL fixtures: rollback и фиксируемая UUID-схема
     ├── test_stats_fixtures.py           Проверки fixtures ORM-схемы, данных и scope
     ├── test_stats_aggregates.py         Выполнение summary/live на PostgreSQL
-    ├── test_stats_edges.py              Tenant, DST, global-first, coverage и live
+    ├── test_stats_edges.py              Tenant, DST, global-first, error gaps и live
     ├── test_stats_explain.py            Read-only транзакция и EXPLAIN тестовых данных
     ├── test_stats_api_postgres.py       Реальные HTTP-маршруты с PostgreSQL
     ├── test_stats_acceptance.py         Независимые контрольные SQL, метрики/buckets, календарь и роли
     ├── test_stats_concurrency.py        Конкурентный snapshot, реальные операции и собственные metadata
+    ├── test_log_upload_transactions.py  Шесть реальных upload-сценариев общего аудита
     └── test_session_error_transactions.py Проверки независимых соединений, commit, rollback и FK
 ```
 
@@ -158,9 +160,11 @@ tests/
 
 В фазе 5 добавлены `test_stats_acceptance.py` и `test_stats_concurrency.py`; существующий conftest, guards и фиксируемая UUID-схема повторно использованы без изменений. Первый файл сверяет current/previous, каждый bucket, cohort, доставляемость и live с независимыми SQL и проверяет реальные маршруты через api_router/PostgreSQL. Второй проверяет snapshot одного SELECT через конкурентный commit, прямые start на существующем аккаунте → finish → ban → ban одновременно с обычными stats-чтениями и неизменность каталогов только собственной схемы до/после. Это не сверка production metadata и не нагрузочный HTTP/auth-тест.
 
+После унификации существующие helper/сессионные тесты переведены на LogService с сохранением имён файлов. Новый `test_log_upload_transactions.py` повторно использует фиксируемую UUID-схему для шести случаев create/update: rollback до независимого writer, доверенные существующие/новые FK, реально выполненный commit с потерянным подтверждением и post-commit HTTP 201. В update проверяются три ошибки с одним operation UUID; аудит привязан к вызывающему пользователю, чужой аккаунт сохраняется. `test_stats_settings.py` проверяет отсутствие поля settings и игнорирование прежней переменной в окружении процесса, а также действующую UTC-валидацию; обработку всех дополнительных dotenv-полей эти проверки не утверждают.
+
 JavaScript-проверки используют встроенный Node test runner; shared auth/header исполняются непосредственно из исходных файлов в VM. Browser runner проверяет страницу и login widgets с фактическими библиотеками и HTTP/clock fixtures. Playwright и browser-артефакты размещены вне проекта; точные результаты, команды и пути отчётов ведутся в `plans/261003-dashboard-backend/plan.md`, границы проверки — в `constraints.md`.
 
-Новая локальная приёмка фазы 5 включает Python baseline, новые тесты и совместный запуск по явному списку файлов stats/session.error и смежных регрессий, повторные полные Node/browser-проверки и целевые статические проверки. Это не запуск всех Python-тестов репозитория. Свежие EXPLAIN/browser-артефакты находятся во временном каталоге прогона; сохранённые basename `stats-phase3-explain.json` и `dashboard-phase4-browser-report.json` не обозначают фазу текущего запуска. Архивные результаты фаз 3–4 и новые результаты фазы 5 разграничены в плане.
+Исторические результаты фаз 3–5 сохранены в плане. После унификации расширенная выборка содержит 25 Python-файлов stats/общего аудита и смежных регрессий, включая `test_restore_missing_files` и `test_account_hash`; это не весь Python-репозиторий. Повторены полные Node/browser-проверки и валидация 144 wire samples (140 StatsSummary и 4 StatsLive); browser runner ожидает пользовательскую скрытую ссылку меню при работающем прямом `/dashboard/`. Целевые flake8/mypy и оставшиеся baseline-замечания legacy `account.py` описаны в `constraints.md`. Текущий browser-отчёт и 24 screenshots находятся во внешнем `log-unification.qb4b4W`; basename `dashboard-phase4-browser-report.json` исторический и не обозначает фазу запуска.
 
 ---
 
@@ -169,13 +173,13 @@ JavaScript-проверки используют встроенный Node test 
 Конфигурация загружается через pydantic-settings из переменных окружения (`.env`). Объединённый класс `GeneralSettings` наследует 5 групп настроек.
 
 Основные группы настроек:
-- Приложение: `PROJECT_NAME`, `PROJECT_HOST`, `PROJECT_PORT`, `API_VERSION`, `BACKEND_CORS_ORIGINS`, `STATS_COVERAGE_STARTS`
+- Приложение: `PROJECT_NAME`, `PROJECT_HOST`, `PROJECT_PORT`, `API_VERSION`, `BACKEND_CORS_ORIGINS`
 - База данных: `POSTGRES_DSN`, `DATABASE_POOL_SIZE`, `DATABASE_MAX_OVERFLOW`, `DATABASE_CREATE_ALL`
 - Безопасность: `SECRET_KEY`, `JWT_ALGORITHM`, `ACCESS_TOKEN_EXPIRE_MINUTES`, `FIRST_SUPERUSER`
 - Логирование: `LOG_NAME`, `LOG_LEVEL`, `LOG_PATH`, `LOG_ROTATION_*`
 - Внешний сервис: `MESSAGE_API_URL`, `MESSAGE_API_TIMEOUT`
 
-`STATS_COVERAGE_STARTS` в `app/core/settings/app_settings.py` — типизированный JSON-словарь четырёх групп с default `{}`, `NoDecode` и явным JSON-разбором; UTCDateTime импортируется из `app/core/utc.py`. Пример пустого объекта добавлен в `.env.example`, рабочая `.env` не менялась. Опциональный `STATS_TEST_EXPLAIN_DIR` используется только тестом EXPLAIN для проверенного временного каталога; по умолчанию артефакт размещается в pytest tmp_path, это не настройка приложения.
+`STATS_COVERAGE_STARTS`, связанные типы и валидатор удалены из `app/core/settings/app_settings.py`; пример в `.env.example` также удалён, рабочая `.env` не менялась. `get_summary` не принимает `coverage_starts`; ручные даты начала сбора для статистики не нужны. Общий `UTCDateTime` остаётся в `app/core/utc.py` и используется DTO. Опциональный `STATS_TEST_EXPLAIN_DIR` используется только тестом EXPLAIN для проверенного временного каталога; по умолчанию артефакт размещается в pytest tmp_path, это не настройка приложения.
 
 ---
 
@@ -187,4 +191,6 @@ JavaScript-проверки используют встроенный Node test 
 
 Для дашборда начинать с `html/dashboard/index.html`, затем `js/dashboard.js` и `js/api.js`; общая авторизация и header находятся в `html/static/auth.js` и `html/static/script.js`. `mock_data.js` относится только к явному demo-режиму.
 
-Для статуса приёмки и канонических команд использовать `plans/261003-dashboard-backend/plan.md`. Операторский `plans/261003-dashboard-backend/rollout.md` описывает необходимые metadata, особенности запуска, включение, smoke-проверки и откат; он подготовлен, но не выполнен. Локальная приёмка одобренной фазы 5 завершена, а эксплуатационные пункты остаются открытыми; общая реализация — `in_progress`.
+Для ошибок upload/start/finish/ban начинать с `app/services/log.py`, затем проследить состояние `LogOperation` в `app/api/ext/v1/account.py` и `session.py`. Для семантики сохранённых счётчиков и `missing_operation_id` смотреть `app/services/stats.py`, для совместимого wire `coverage` с `from: null` — `app/schemas/stats.py`; фронтенд сохраняет предупреждения и `null`, но не представляет legacy `from` как гарантированную дату сбора.
+
+Для статуса приёмки и канонических команд использовать `plans/261003-dashboard-backend/plan.md`. Операторский `plans/261003-dashboard-backend/rollout.md` описывает необходимые metadata, особенности запуска, включение общего LogService-аудита, smoke-проверки сохранённой истории и откат; он подготовлен, но не выполнен. Рабочие metadata/retention, согласованная стоимость, релиз/откат и подтверждение аудита всех workers остаются открытыми; общая реализация — `in_progress`. Прежнего условия ручного подтверждения coverage-дат больше нет.
