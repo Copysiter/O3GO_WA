@@ -1,6 +1,7 @@
 ﻿from secrets import token_urlsafe
 from typing import Optional, Union, Literal, Any, Dict, List
 
+from sqlalchemy import String, cast, func, literal, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.security import get_password_hash, verify_password
@@ -17,6 +18,23 @@ class UserCRUD(
 
     def __init__(self) -> None:
         super().__init__(model=User, filter_class=UserFilter)
+
+    async def get_options(
+        self, db: AsyncSession, *, owner_id: int | None,
+    ) -> list[dict[str, str | int]]:
+        """Read public labels and IDs, restricted to the supplied owner."""
+        label = func.coalesce(
+            func.nullif(self.model.name, ""),
+            func.nullif(self.model.login, ""),
+            literal("Пользователь ") + cast(self.model.id, String),
+        )
+        statement = select(
+            label.label("text"), self.model.id.label("value"),
+        ).order_by(func.lower(label), self.model.id)
+        if owner_id is not None:
+            statement = statement.where(self.model.id == owner_id)
+        result = await db.execute(statement)
+        return [dict(row) for row in result.mappings().all()]
 
     async def create(
         self,

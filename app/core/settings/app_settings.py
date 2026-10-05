@@ -1,6 +1,15 @@
-from typing import Union, List
-from pydantic import Field
-from pydantic_settings import BaseSettings
+import json
+from typing import Annotated, Any, Union, List, Literal
+from pydantic import Field, field_validator
+from pydantic_settings import BaseSettings, NoDecode
+
+from app.core.utc import UTCDateTime
+
+
+StatsCoverageName = Literal[
+    "lifecycle", "message_events", "account_errors", "session_errors",
+]
+StatsCoverageStarts = dict[StatsCoverageName, UTCDateTime]
 
 
 class AppSettings(BaseSettings):
@@ -41,3 +50,16 @@ class AppSettings(BaseSettings):
         '*', json_schema_extra={'env': 'BACKEND_CORS_ORIGINS'}
     )
     ASGI_WORKERS: int = Field(1, json_schema_extra={'env': 'ASGI_WORKERS'})
+    STATS_COVERAGE_STARTS: Annotated[StatsCoverageStarts, NoDecode] = Field(
+        default_factory=dict,
+        description=(
+            "Confirmed audit collection starts by metric group, in RFC 3339. "
+            "Omitted groups have unknown coverage; do not infer rollout dates."
+        ),
+    )
+
+    @field_validator("STATS_COVERAGE_STARTS", mode="before")
+    @classmethod
+    def decode_stats_coverage(cls, value: Any) -> Any:
+        # Do not let an explicit JSON null silently become the field default.
+        return json.loads(value) if isinstance(value, str) else value

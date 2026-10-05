@@ -3,11 +3,14 @@ from typing import Any, List
 from fastapi import APIRouter, Depends
 from fastapi.responses import JSONResponse
 
+from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Session
 
 from app.core.logger import logger, E
 
-import app.crud as crud, app.models as models, app.schemas as schemas
+import app.crud as crud
+import app.models as models
+import app.schemas as schemas
 from app import deps
 
 
@@ -43,24 +46,12 @@ async def get_device_options(
 @router.get('/user', response_model=List[schemas.OptionInt])
 async def get_user_options(
     *,
-    db: Session = Depends(deps.get_db),
+    db: AsyncSession = Depends(deps.get_db),
     current_user: models.User = Depends(deps.get_current_active_user)
-) -> Any:
+) -> list[dict[str, str | int]]:
+    """Return safe owner options, including inactive owners for admins.
+
+    Members can only select themselves, regardless of client parameters.
     """
-    Retrieve user options.
-    """
-    try:
-        f = {'user_id': current_user.id} \
-            if not current_user.is_superuser else None
-        rows = await crud.user.all(db, filter=f)
-        return JSONResponse([{
-            'text': rows[i].name or rows[i].login,
-            'value': rows[i].id
-        } for i in range(len(rows))])
-    except Exception as e:
-        logger.exception(
-            event=E.SYSTEM.API.ERROR, extra={
-                "error": {"type": type(e).__name__, "msg": str(e)}
-            }
-        )
-        raise e
+    owner_id = None if current_user.is_superuser else current_user.id
+    return await crud.user.get_options(db, owner_id=owner_id)
