@@ -6,15 +6,7 @@
         ['opened', 'opened'], ['finished', 'finished'], ['session_bans', 'sessionBans'],
         ['account_bans', 'accountBans'], ['sent', 'sent'], ['delivered', 'delivered'],
         ['undelivered', 'undelivered'], ['failed', 'failed'], ['account_errors', 'accountErrors'],
-        ['session_errors', 'sessionErrors'], ['auto_finished', 'autoFinished'],
-        ['message_created', 'messageCreated']
-    ];
-    var MESSAGE_STATUSES = [
-        ['sent', 'Отправлены, ожидают результата'], ['delivered', 'Доставлены'],
-        ['undelivered', 'Не доставлены'], ['failed', 'Ошибка отправки']
-    ];
-    var SESSION_STATUSES = [
-        ['opened', 'Открыто'], ['finished', 'Завершено'], ['banned', 'Забанено']
+        ['session_errors', 'sessionErrors'], ['auto_finished', 'autoFinished']
     ];
     var MESSAGES = {
         auth: 'Требуется повторный вход в систему.',
@@ -128,7 +120,7 @@
         if (compare(effectiveEnd, nextMonth(start)) > 0) {
             throw new RangeError('Период не может превышать один календарный месяц.');
         }
-        // Demo IDs are allowed here; only the real transport validates owner IDs.
+        // Demo IDs are allowed here; only the real transport validates user IDs.
         return { startAt: start.iso, endAt: end ? end.iso : null,
             userId: query.userId === undefined ? null : query.userId };
     }
@@ -163,18 +155,6 @@
         return { userId: id, mode: raw.mode, label: raw.label };
     }
 
-    function mapStatuses(raw, names, nullable) {
-        requireShape(Array.isArray(raw) && raw.length === names.length);
-        var seen = [];
-        return raw.map(function (item) {
-            requireShape(isObject(item));
-            var definition = names.filter(function (entry) { return entry[0] === item.status; })[0];
-            requireShape(Boolean(definition) && seen.indexOf(item.status) === -1);
-            seen.push(item.status);
-            return { status: item.status, label: definition[1], value: count(item.value, nullable) };
-        });
-    }
-
     function mapCoverage(raw) {
         // "recorded" means countable retained events, not confirmed complete history.
         // Keep the compatibility `from` field; the UI must not infer readiness from it.
@@ -192,17 +172,10 @@
     }
 
     function mapSummary(raw) {
-        requireShape(isObject(raw) && isObject(raw.comparison) && isObject(raw.delivery) &&
-            isObject(raw.message_cohort) && isObject(raw.coverage) &&
+        requireShape(isObject(raw) && isObject(raw.comparison) && isObject(raw.coverage) &&
             (raw.granularity === 'hour' || raw.granularity === 'day') &&
             Array.isArray(raw.trend) && raw.trend.length <= 32);
         var scope = mapScope(raw.scope);
-        var delivery = { delivered: count(raw.delivery.delivered), terminal: count(raw.delivery.terminal),
-            rate: raw.delivery.rate };
-        requireShape(delivery.delivered <= delivery.terminal &&
-            ((delivery.terminal === 0) === (delivery.rate === null)) &&
-            (delivery.rate === null || (typeof delivery.rate === 'number' &&
-                isFinite(delivery.rate) && delivery.rate >= 0 && delivery.rate <= 100)));
         var trend = raw.trend.map(function (point) {
             var result = mapMetrics(point);
             result.key = dateValue(point.key);
@@ -222,10 +195,7 @@
             granularity: raw.granularity, scope: scope, scopeLabel: scope.label,
             totals: mapMetrics(raw.totals), previous: mapMetrics(raw.previous),
             comparison: { startAt: dateValue(raw.comparison.start_at), endAt: dateValue(raw.comparison.end_at) },
-            trend: trend, statuses: mapStatuses(raw.statuses, MESSAGE_STATUSES, false),
-            sessionStatuses: mapStatuses(raw.session_statuses, SESSION_STATUSES, true), delivery: delivery,
-            messageCohort: { total: count(raw.message_cohort.total), created: count(raw.message_cohort.created),
-                waiting: count(raw.message_cohort.waiting), unknownStatus: count(raw.message_cohort.unknown_status) },
+            trend: trend,
             coverage: { lifecycle: mapCoverage(raw.coverage.lifecycle), messageEvents: mapCoverage(raw.coverage.message_events),
                 accountErrors: mapCoverage(raw.coverage.account_errors), sessionErrors: mapCoverage(raw.coverage.session_errors) }
         };

@@ -8,11 +8,7 @@
     var FIELDS = [
         'opened', 'finished', 'sessionBans', 'accountBans', 'sent',
         'delivered', 'undelivered', 'failed', 'accountErrors', 'sessionErrors',
-        'autoFinished', 'messageCreated'
-    ];
-    var STATUS_NAMES = [
-        ['sent', 'Отправлены, ожидают результата'], ['delivered', 'Доставлены'],
-        ['undelivered', 'Не доставлены'], ['failed', 'Ошибка отправки']
+        'autoFinished'
     ];
 
     function createUsers(currentUser) {
@@ -108,15 +104,13 @@
         counts.accountBans = countEvents(bans, from, to, 2);
         counts.autoFinished = countEvents(finished, from, to, 3);
 
-        var created = countEvents(5 + seed % 12, from, to);
-        var waiting = countEvents(3 + (seed >>> 4) % 10, from, to);
-        var pending = countEvents(6 + (seed >>> 8) % 17, from, to);
+        var sentOnly = countEvents(6 + (seed >>> 8) % 17, from, to);
         counts.delivered = countEvents(50 + (seed >>> 12) % 91, from, to);
         counts.undelivered = countEvents(2 + (seed >>> 20) % 9, from, to);
         counts.failed = countEvents(1 + (seed >>> 24) % 5, from, to);
-        // Confirmed sends include pending SENT, DELIVERED and UNDELIVERED.
-        counts.sent = pending + counts.delivered + counts.undelivered;
-        counts.messageCreated = created + waiting + counts.sent + counts.failed;
+        // Synthetic log histories have disjoint messages per user and no later callbacks.
+        // This demo's additive counts are not an invariant of real user-filtered history.
+        counts.sent = sentOnly + counts.delivered + counts.undelivered;
 
         for (var index = 0; index < seed % 3; index += 1) {
             var errorSeed = hash(JSON.stringify([userId, date, hour, index]) + ':error');
@@ -206,39 +200,32 @@
                 var key = new Date(bucket).toISOString();
                 var point = Object.assign({
                     key: key,
+                    fromAt: new Date(Math.max(start, bucket)).toISOString(),
+                    toAt: new Date(Math.min(end, bucket + step)).toISOString(),
                     label: step === HOUR ? key.slice(11, 16) : key.slice(8, 10) + '.' + key.slice(5, 7)
                 }, rangeCounts(Math.max(start, bucket), Math.min(end, bucket + step), scope.selected));
                 trend.push(point);
                 add(totals, point);
             }
         }
-        var statusValues = [totals.sent - totals.delivered - totals.undelivered,
-            totals.delivered, totals.undelivered, totals.failed];
-        var terminal = totals.delivered + totals.undelivered + totals.failed;
+        var coverage = {};
+        ['lifecycle', 'messageEvents', 'accountErrors', 'sessionErrors'].forEach(function (group) {
+            coverage[group] = { from: null, currentState: 'recorded', previousState: 'recorded',
+                currentReason: null, previousReason: null };
+        });
         return {
             users: scope.users,
             scopeLabel: scope.selected.length === 1 ? scope.selected[0].name : 'Все пользователи',
             startAt: options.startAt,
             endAt: endAt,
             effectiveEndAt: new Date(end).toISOString(),
+            generatedAt: options.now.toISOString(),
             granularity: step === HOUR ? 'hour' : 'day',
             totals: totals,
             previous: rangeCounts(start - duration, start, scope.selected),
             comparison: { startAt: new Date(start - duration).toISOString(), endAt: options.startAt },
             trend: trend,
-            statuses: STATUS_NAMES.map(function (item, index) {
-                return { status: item[0], label: item[1], value: statusValues[index] };
-            }),
-            sessionStatuses: [
-                { status: 'opened', label: 'Открыто', value: totals.opened },
-                { status: 'finished', label: 'Завершено', value: totals.finished },
-                { status: 'banned', label: 'Забанено', value: totals.sessionBans }
-            ],
-            delivery: {
-                terminal: terminal, delivered: totals.delivered,
-                rate: terminal ? totals.delivered / terminal * 100 : null
-            },
-            live: liveSnapshot(scope.selected, options.now)
+            coverage: coverage
         };
     }
 

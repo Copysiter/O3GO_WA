@@ -6,7 +6,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from pydantic import TypeAdapter
-from sqlalchemy import BigInteger, DateTime, Integer, bindparam, text
+from sqlalchemy import BigInteger, DateTime, Integer, String, bindparam, text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.sql.selectable import TextualSelect
@@ -19,16 +19,11 @@ from app.schemas.stats import (
     StatsCoverage,
     StatsCoverageGroup,
     StatsCoverageState,
-    StatsDelivery,
     StatsLive,
     StatsLiveQuery,
-    StatsMessageCohort,
-    StatsMessageStatus,
-    StatsMessageStatusName,
     StatsMetrics,
     StatsPeriod,
     StatsScope,
-    StatsSessionStatus,
     StatsSummary,
     StatsSummaryQuery,
     StatsTrendPoint,
@@ -40,9 +35,6 @@ _COVERAGE_GROUPS = (
     "lifecycle", "message_events", "account_errors", "session_errors",
 )
 _ERROR_GROUPS = ("account_errors", "session_errors")
-_MESSAGE_STATUSES: tuple[StatsMessageStatusName, ...] = (
-    "sent", "delivered", "undelivered", "failed",
-)
 
 
 class StatsPeriodError(ValueError):
@@ -80,209 +72,143 @@ class StatsService:
     @staticmethod
     def _summary_statement(*, scoped: bool) -> TextualSelect:
         # Only fixed predicates vary; request values remain bind parameters.
-        account_scope = "WHERE a.user_id = :scope_user_id" if scoped else ""
-        error_scope = "AND l.user_id = :scope_user_id" if scoped else ""
+        log_scope = "AND l.user_id = :scope_user_id" if scoped else ""
         sql = """
 WITH
-p AS (
-    SELECT CAST(:start_at AS timestamptz) AS start_at,
-           CAST(:effective_end_at AS timestamptz) AS end_at
+lifecycle_buckets AS MATERIALIZED (
+    SELECT CASE WHEN l.created_at >= :start_at
+                THEN 'current' ELSE 'previous' END AS period,
+           date_trunc(:granularity, l.created_at AT TIME ZONE 'UTC')
+               AT TIME ZONE 'UTC' AS key,
+           COUNT(*) FILTER (WHERE l.event = 'session.create'
+                            AND l.status = 'active') AS opened,
+           COUNT(*) FILTER (WHERE l.event = 'session.status'
+                            AND l.status = 'finished') AS finished,
+           COUNT(*) FILTER (WHERE l.event = 'session.status'
+                            AND l.status = 'banned') AS session_bans,
+           COUNT(*) FILTER (WHERE l.event = 'account.status'
+                            AND l.status = 'banned') AS account_bans,
+           COUNT(*) FILTER (WHERE l.event = 'session.status'
+                            AND l.status = 'finished'
+                            AND l.source = 'scheduler') AS auto_finished
+    FROM log l
+    WHERE l.created_at >= :previous_start
+      AND l.created_at < :effective_end_at {log_scope}
+      AND (
+          (l.session_id IS NOT NULL AND (
+              (l.event = 'session.create' AND l.status = 'active')
+              OR (l.event = 'session.status'
+                  AND l.status IN ('finished', 'banned'))
+          ))
+          OR (l.account_id IS NOT NULL
+              AND l.event = 'account.status' AND l.status = 'banned')
+      )
+    GROUP BY 1, 2
 ),
-cfg AS (
-    SELECT p.*,
-           CASE WHEN end_at - start_at <= INTERVAL '24 hours'
-                THEN 'hour' ELSE 'day' END AS unit,
-           CASE WHEN end_at - start_at <= INTERVAL '24 hours'
-                THEN INTERVAL '1 hour' ELSE INTERVAL '1 day' END AS step
-    FROM p
-),
-periods AS (
-    SELECT 'current'::text AS period, start_at, end_at FROM p
-    UNION ALL
-    SELECT 'previous',
-           ((start_at AT TIME ZONE 'UTC') - (end_at - start_at))
-               AT TIME ZONE 'UTC',
-           start_at FROM p
-),
-bounds AS (
-    SELECT MIN(start_at) AS lo, MAX(end_at) AS hi FROM periods
-),
-owned_accounts AS NOT MATERIALIZED (
-    SELECT a.id FROM account a {account_scope}
-),
-owned_sessions AS NOT MATERIALIZED (
-    SELECT s.id FROM session s
-    JOIN owned_accounts a ON a.id = s.account_id
-),
-owned_messages AS NOT MATERIALIZED (
-    SELECT m.id, m.created_at, m.status FROM message m
-    JOIN owned_sessions s ON s.id = m.session_id
-),
-window_log AS NOT MATERIALIZED (
-    SELECT l.* FROM log l CROSS JOIN bounds b
-    WHERE l.created_at >= b.lo AND l.created_at < b.hi
-),
-session_facts AS (
-    SELECT l.created_at AS at, v.metric
-    FROM window_log l
-    JOIN owned_sessions s ON s.id = l.session_id
-    CROSS JOIN LATERAL (VALUES
-        ('opened', l.event = 'session.create' AND l.status = 'active'),
-        ('finished', l.event = 'session.status' AND l.status = 'finished'),
-        ('session_bans', l.event = 'session.status' AND l.status = 'banned'),
-        ('auto_finished', l.event = 'session.status' AND l.status = 'finished'
-            AND l.source = 'scheduler')
-    ) AS v(metric, include_event)
-    WHERE l.event IN ('session.create', 'session.status') AND v.include_event
-),
-account_facts AS (
-    SELECT l.created_at AS at, 'account_bans'::text AS metric
-    FROM window_log l JOIN owned_accounts a ON a.id = l.account_id
-    WHERE l.event = 'account.status' AND l.status = 'banned'
-),
-message_candidates AS (
-    SELECT DISTINCT l.message_id
-    FROM window_log l JOIN owned_messages m ON m.id = l.message_id
-    WHERE l.event IN ('message.create', 'message.status')
+message_first AS MATERIALIZED (
+    SELECT l.message_id,
+           MIN(l.created_at) FILTER (
+               WHERE l.status IN ('sent', 'delivered', 'undelivered')
+           ) AS sent_at,
+           MIN(l.created_at) FILTER (
+               WHERE l.status = 'delivered') AS delivered_at,
+           MIN(l.created_at) FILTER (
+               WHERE l.status = 'undelivered') AS undelivered_at,
+           MIN(l.created_at) FILTER (
+               WHERE l.status = 'failed') AS failed_at
+    FROM log l
+    WHERE l.message_id IS NOT NULL
+      AND l.event IN ('message.create', 'message.status')
       AND l.status IN ('sent', 'delivered', 'undelivered', 'failed')
-),
-message_first AS (
-    SELECT c.message_id, f.*
-    FROM message_candidates c CROSS JOIN bounds b
-    CROSS JOIN LATERAL (
-        SELECT MIN(l.created_at) FILTER (
-                   WHERE l.status IN ('sent', 'delivered', 'undelivered')
-               ) AS sent_at,
-               MIN(l.created_at) FILTER (
-                   WHERE l.status = 'delivered') AS delivered_at,
-               MIN(l.created_at) FILTER (
-                   WHERE l.status = 'undelivered') AS undelivered_at,
-               MIN(l.created_at) FILTER (
-                   WHERE l.status = 'failed') AS failed_at
-        FROM log l
-        WHERE l.message_id = c.message_id
-          AND l.event IN ('message.create', 'message.status')
-          AND l.status IN ('sent', 'delivered', 'undelivered', 'failed')
-          AND l.created_at < b.hi
-    ) f
+      AND l.created_at < :effective_end_at {log_scope}
+      AND :previous_start < :effective_end_at
+    GROUP BY l.message_id
 ),
 message_facts AS (
-    SELECT v.at, v.metric
-    FROM message_first f CROSS JOIN bounds b
-    CROSS JOIN LATERAL (VALUES
-        ('sent', f.sent_at), ('delivered', f.delivered_at),
-        ('undelivered', f.undelivered_at), ('failed', f.failed_at)
-    ) v(metric, at)
-    WHERE v.at >= b.lo AND v.at < b.hi
-),
-creation_facts AS (
-    SELECT m.created_at AS at, 'message_created'::text AS metric
-    FROM owned_messages m CROSS JOIN bounds b
-    WHERE m.created_at >= b.lo AND m.created_at < b.hi
-),
-error_candidates AS (
-    SELECT DISTINCT l.event, l.user_id,
-           NULLIF(l.context ->> 'operation_id', '') AS operation_id
-    FROM window_log l
-    WHERE l.event IN ('account.error', 'session.error')
-      AND l.source = 'ext_api' {error_scope}
-      AND NULLIF(l.context ->> 'operation_id', '') IS NOT NULL
+    SELECT sent_at AS at, 'sent'::text AS metric FROM message_first
+    UNION ALL
+    SELECT delivered_at, 'delivered' FROM message_first
+    UNION ALL
+    SELECT undelivered_at, 'undelivered' FROM message_first
+    UNION ALL
+    SELECT failed_at, 'failed' FROM message_first
 ),
 error_first AS (
-    SELECT c.event, c.user_id, c.operation_id, MIN(l.created_at) AS at
-    FROM error_candidates c
-    JOIN log l ON l.event = c.event
-      AND l.user_id IS NOT DISTINCT FROM c.user_id
-      AND NULLIF(l.context ->> 'operation_id', '') = c.operation_id
-    CROSS JOIN bounds b
+    SELECT l.event, l.user_id,
+           NULLIF(l.context ->> 'operation_id', '') AS operation_id,
+           MIN(l.created_at) AS at
+    FROM log l
     WHERE l.source = 'ext_api'
-      AND l.event IN ('account.error', 'session.error') {error_scope}
-      AND l.created_at < b.hi
-    GROUP BY c.event, c.user_id, c.operation_id
+      AND l.event IN ('account.error', 'session.error')
+      AND NULLIF(l.context ->> 'operation_id', '') IS NOT NULL
+      AND l.created_at < :effective_end_at {log_scope}
+      AND :previous_start < :effective_end_at
+    GROUP BY l.event, l.user_id, NULLIF(l.context ->> 'operation_id', '')
 ),
 error_facts AS (
     SELECT f.at,
            CASE f.event WHEN 'account.error' THEN 'account_errors'
-                        ELSE 'session_errors' END AS metric
-    FROM error_first f CROSS JOIN bounds b
-    WHERE f.at >= b.lo AND f.at < b.hi
+                         ELSE 'session_errors' END AS metric
+    FROM error_first f
 ),
 facts AS (
-    SELECT * FROM session_facts UNION ALL
-    SELECT * FROM account_facts UNION ALL
     SELECT * FROM message_facts UNION ALL
-    SELECT * FROM creation_facts UNION ALL
     SELECT * FROM error_facts
 ),
-aggregated AS (
-    SELECT r.period,
-           date_trunc(c.unit, f.at AT TIME ZONE 'UTC') AS bucket,
+event_buckets AS (
+    SELECT CASE WHEN f.at >= :start_at
+                THEN 'current' ELSE 'previous' END AS period,
+           date_trunc(:granularity, f.at AT TIME ZONE 'UTC')
+               AT TIME ZONE 'UTC' AS key,
            f.metric, COUNT(*) AS value
-    FROM facts f JOIN periods r ON f.at >= r.start_at AND f.at < r.end_at
-    CROSS JOIN cfg c
-    GROUP BY r.period, date_trunc(c.unit, f.at AT TIME ZONE 'UTC'), f.metric
-),
-metric_names(metric) AS (
-    VALUES ('opened'), ('finished'), ('session_bans'), ('account_bans'),
-           ('sent'), ('delivered'), ('undelivered'), ('failed'),
-           ('account_errors'), ('session_errors'), ('auto_finished'),
-           ('message_created')
-),
-buckets AS (
-    SELECT r.period, g.bucket,
-           GREATEST(g.bucket AT TIME ZONE 'UTC', r.start_at) AS from_at,
-           LEAST((g.bucket + c.step) AT TIME ZONE 'UTC', r.end_at) AS to_at
-    FROM periods r CROSS JOIN cfg c
-    CROSS JOIN LATERAL generate_series(
-        date_trunc(c.unit, r.start_at AT TIME ZONE 'UTC'),
-        r.end_at AT TIME ZONE 'UTC', c.step
-    ) AS g(bucket)
-    WHERE r.start_at < r.end_at AND g.bucket < r.end_at AT TIME ZONE 'UTC'
+    FROM facts f
+    WHERE f.at >= :previous_start AND f.at < :effective_end_at
+    GROUP BY 1, 2, 3
 ),
 counters AS (
-    SELECT b.period, b.bucket AT TIME ZONE 'UTC' AS key,
-           b.from_at, b.to_at, n.metric, COALESCE(a.value, 0) AS value
-    FROM buckets b CROSS JOIN metric_names n
-    LEFT JOIN aggregated a
-      ON a.period = b.period AND a.bucket = b.bucket AND a.metric = n.metric
-),
-message_cohort AS (
-    SELECT COUNT(*) AS total,
-           COUNT(*) FILTER (WHERE m.status = 0) AS created,
-           COUNT(*) FILTER (WHERE m.status = -1) AS waiting,
-           COUNT(*) FILTER (WHERE m.status = 1) AS sent,
-           COUNT(*) FILTER (WHERE m.status = 2) AS delivered,
-           COUNT(*) FILTER (WHERE m.status = 3) AS undelivered,
-           COUNT(*) FILTER (WHERE m.status = 4) AS failed,
-           COUNT(*) FILTER (
-               WHERE m.status IS NULL
-                  OR m.status NOT IN (-1, 0, 1, 2, 3, 4)) AS unknown_status
-    FROM owned_messages m CROSS JOIN p
-    WHERE m.created_at >= p.start_at AND m.created_at < p.end_at
+    SELECT period, key, 'opened'::text AS metric, opened AS value
+    FROM lifecycle_buckets WHERE opened > 0
+    UNION ALL
+    SELECT period, key, 'finished', finished
+    FROM lifecycle_buckets WHERE finished > 0
+    UNION ALL
+    SELECT period, key, 'session_bans', session_bans
+    FROM lifecycle_buckets WHERE session_bans > 0
+    UNION ALL
+    SELECT period, key, 'account_bans', account_bans
+    FROM lifecycle_buckets WHERE account_bans > 0
+    UNION ALL
+    SELECT period, key, 'auto_finished', auto_finished
+    FROM lifecycle_buckets WHERE auto_finished > 0
+    UNION ALL
+    SELECT period, key, metric, value FROM event_buckets
 ),
 gap_counts AS (
-    SELECT r.period,
+    SELECT CASE WHEN l.created_at >= :start_at
+                THEN 'current' ELSE 'previous' END AS period,
            CASE l.event WHEN 'account.error' THEN 'account_errors'
-                        ELSE 'session_errors' END AS metric_group,
+                         ELSE 'session_errors' END AS metric_group,
            COUNT(*) AS invalid_rows
-    FROM window_log l
-    JOIN periods r ON l.created_at >= r.start_at AND l.created_at < r.end_at
+    FROM log l
     WHERE l.event IN ('account.error', 'session.error')
-      AND l.source = 'ext_api' {error_scope}
+      AND l.source = 'ext_api' {log_scope}
       AND NULLIF(l.context ->> 'operation_id', '') IS NULL
-    GROUP BY r.period, l.event
+      AND l.created_at >= :previous_start
+      AND l.created_at < :effective_end_at
+    GROUP BY 1, l.event
 )
 SELECT statement_timestamp() AS generated_at,
        COALESCE((SELECT jsonb_agg(to_jsonb(c)
-                    ORDER BY c.period, c.key, c.metric)
-                 FROM counters c), '[]'::jsonb) AS counters,
-       (SELECT to_jsonb(m) FROM message_cohort m) AS message_cohort,
+                     ORDER BY c.period, c.key, c.metric)
+                  FROM counters c), '[]'::jsonb) AS counters,
        COALESCE((SELECT jsonb_agg(to_jsonb(g)) FROM gap_counts g),
-                '[]'::jsonb) AS audit_gaps
-""".format(account_scope=account_scope, error_scope=error_scope)
+                 '[]'::jsonb) AS audit_gaps
+""".format(log_scope=log_scope)
         statement = text(sql).bindparams(
             bindparam("start_at", type_=DateTime(timezone=True)),
+            bindparam("previous_start", type_=DateTime(timezone=True)),
             bindparam("effective_end_at", type_=DateTime(timezone=True)),
+            bindparam("granularity", type_=String()),
         )
         if scoped:
             statement = statement.bindparams(
@@ -290,7 +216,7 @@ SELECT statement_timestamp() AS generated_at,
             )
         return statement.columns(
             generated_at=DateTime(timezone=True), counters=JSONB(),
-            message_cohort=JSONB(), audit_gaps=JSONB(),
+            audit_gaps=JSONB(),
         )
 
     @staticmethod
@@ -362,16 +288,26 @@ FROM counts c CROSS JOIN p
             for name in ("current", "previous")
         }
         points: dict[datetime, dict[str, Any]] = {}
+        if period.start_at < period.effective_end_at:
+            key = period.start_at.replace(minute=0, second=0, microsecond=0)
+            step = timedelta(hours=1)
+            if period.granularity == "day":
+                key = key.replace(hour=0)
+                step = timedelta(days=1)
+            while key < period.effective_end_at:
+                to_at = key + min(step, period.effective_end_at - key)
+                points[key] = {
+                    **dict.fromkeys(StatsMetrics.model_fields, 0),
+                    "key": key,
+                    "from_at": max(key, period.start_at),
+                    "to_at": to_at,
+                }
+                key = to_at
         for row in result["counters"]:
             raw_totals[row["period"]][row["metric"]] += row["value"]
             if row["period"] == "current":
                 key = _UTC_DATETIME.validate_python(row["key"])
-                point = points.setdefault(key, {
-                    "key": key,
-                    "from_at": _UTC_DATETIME.validate_python(row["from_at"]),
-                    "to_at": _UTC_DATETIME.validate_python(row["to_at"]),
-                })
-                point[row["metric"]] = row["value"]
+                points[key][row["metric"]] += row["value"]
         gaps: dict[str, set[str]] = {"current": set(), "previous": set()}
         for gap in result["audit_gaps"]:
             if gap["invalid_rows"]:
@@ -404,37 +340,10 @@ FROM counts c CROSS JOIN p
                 "previous_state": previous, "current_reason": current_reason,
                 "previous_reason": previous_reason,
             })
-        cohort = result["message_cohort"]
-        terminal = (
-            cohort["delivered"] + cohort["undelivered"] + cohort["failed"]
-        )
         return StatsSummary(
             **period.model_dump(), generated_at=result["generated_at"],
             scope=scope, totals=totals["current"], previous=totals["previous"],
             trend=trend,
-            statuses=[
-                StatsMessageStatus(status=name, value=cohort[name])
-                for name in _MESSAGE_STATUSES
-            ],
-            message_cohort=StatsMessageCohort(**{
-                name: cohort[name] for name in StatsMessageCohort.model_fields
-            }),
-            session_statuses=[
-                StatsSessionStatus(
-                    status="opened", value=totals["current"].opened,
-                ),
-                StatsSessionStatus(
-                    status="finished", value=totals["current"].finished,
-                ),
-                StatsSessionStatus(
-                    status="banned", value=totals["current"].session_bans,
-                ),
-            ],
-            delivery=StatsDelivery(
-                delivered=cohort["delivered"], terminal=terminal,
-                rate=round(cohort["delivered"] / terminal * 100, 2)
-                if terminal else None,
-            ),
             coverage=StatsCoverage.model_validate(coverage),
         )
 
@@ -443,9 +352,10 @@ FROM counts c CROSS JOIN p
         query: StatsSummaryQuery,
         now: datetime | None = None,
     ) -> StatsSummary:
-        """Count retained events and the cohort in one database snapshot.
+        """Count log events in one snapshot, scoped by their recorded user.
 
         Recorded counts do not establish complete collection or a start date.
+        First confirmations are computed within that scope's retained history.
         Error groups with missing operation IDs remain partial and nullable.
         """
         period = self.resolve_period(query, now=now)
@@ -455,7 +365,9 @@ FROM counts c CROSS JOIN p
         scoped = scope.user_id is not None
         params: dict[str, Any] = {
             "start_at": period.start_at,
+            "previous_start": period.comparison.start_at,
             "effective_end_at": period.effective_end_at,
+            "granularity": period.granularity,
         }
         if scoped:
             params["scope_user_id"] = scope.user_id

@@ -1,11 +1,13 @@
 """Закрытие неактивных сессий."""
-from datetime import datetime, timedelta
+from contextlib import aclosing
+from datetime import UTC, datetime, timedelta
 
 from app.core.logger import logger, E
 from app.deps import get_db
 from app.models.session import SessionStatus
 from app.schemas.session import SessionUpdate
 from app.schemas.log import LogCreate
+from app.crud.account import account
 from app.crud.session import session
 from app.jobs import registry
 from app.services.log import log_service
@@ -18,35 +20,47 @@ from app.services.log import log_service
 async def close_inactive_sessions():
     """Закрытие сессий со статусом ACTIVE, неактивных старше 24 часов."""
     try:
-        threshold_time = datetime.utcnow() - timedelta(hours=24)
+        threshold_time = datetime.now(UTC) - timedelta(hours=24)
 
-        async for db in get_db():
-            updated_sessions = await session.update(
-                db=db,
-                obj_in=SessionUpdate(status=SessionStatus.FINISHED),
-                filter={
-                    "status__in": [SessionStatus.ACTIVE],
-                    "updated_at__lte": threshold_time
-                },
-                commit=False,
-                returning="object"
-            )
-            await log_service.records(
-                db,
-                items=[
-                    LogCreate(
-                        event="session.status",
-                        source="scheduler",
-                        account_id=item.account_id,
-                        session_id=item.id,
-                        status=item.status
-                    )
-                    for item in updated_sessions
-                ],
-                commit=False
-            )
-            await db.commit()
-            updated_count = len(updated_sessions)
+        async with aclosing(get_db()) as databases:
+            async for db in databases:
+                updated_sessions = await session.update(
+                    db=db,
+                    obj_in=SessionUpdate(status=SessionStatus.FINISHED),
+                    filter={
+                        "status__in": [SessionStatus.ACTIVE],
+                        "updated_at__lte": threshold_time
+                    },
+                    commit=False,
+                    returning="object"
+                )
+                owners = await account.get_owner_ids(
+                    db,
+                    account_ids=list({s.account_id for s in updated_sessions})
+                )
+                for item in updated_sessions:
+                    if owners.get(item.account_id) is None:
+                        raise RuntimeError(
+                            f"Owner not found for session {item.id}, "
+                            f"account {item.account_id}"
+                        )
+                await log_service.records(
+                    db,
+                    items=[
+                        LogCreate(
+                            event="session.status",
+                            source="scheduler",
+                            account_id=item.account_id,
+                            session_id=item.id,
+                            user_id=owners[item.account_id],
+                            status=item.status
+                        )
+                        for item in updated_sessions
+                    ],
+                    commit=False
+                )
+                await db.commit()
+                updated_count = len(updated_sessions)
 
         logger.info(
             f"Закрыто сессий: {updated_count}",

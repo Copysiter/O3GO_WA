@@ -1,5 +1,6 @@
 """Освобождение неактивных аккаунтов."""
-from datetime import datetime, timedelta
+from contextlib import aclosing
+from datetime import UTC, datetime, timedelta
 
 from app.core.logger import logger, E
 from app.deps import get_db
@@ -16,36 +17,43 @@ from app.services.log import log_service
     name="Освобождение аккаунтов, неактивных старше 24 часов"
 )
 async def close_inactive_accounts():
-    """Освобождение аккаунтов со статусом ACTIVE, неактивных старше 24 часов."""
+    """Освобождение ACTIVE-аккаунтов, неактивных старше 24 часов."""
     try:
-        threshold_time = datetime.utcnow() - timedelta(hours=24)
+        threshold_time = datetime.now(UTC) - timedelta(hours=24)
 
-        async for db in get_db():
-            updated_accounts = await account.update(
-                db=db,
-                obj_in=AccountUpdate(status=AccountStatus.AVAILABLE),
-                filter={
-                    "status__in": [AccountStatus.ACTIVE],
-                    "updated_at__lte": threshold_time
-                },
-                commit=False,
-                returning="object"
-            )
-            await log_service.records(
-                db,
-                items=[
-                    LogCreate(
-                        event="account.status",
-                        source="scheduler",
-                        account_id=item.id,
-                        status=item.status
-                    )
-                    for item in updated_accounts
-                ],
-                commit=False
-            )
-            await db.commit()
-            updated_count = len(updated_accounts)
+        async with aclosing(get_db()) as databases:
+            async for db in databases:
+                updated_accounts = await account.update(
+                    db=db,
+                    obj_in=AccountUpdate(status=AccountStatus.AVAILABLE),
+                    filter={
+                        "status__in": [AccountStatus.ACTIVE],
+                        "updated_at__lte": threshold_time
+                    },
+                    commit=False,
+                    returning="object"
+                )
+                for item in updated_accounts:
+                    if item.user_id is None:
+                        raise RuntimeError(
+                            f"Owner not found for account {item.id}"
+                        )
+                await log_service.records(
+                    db,
+                    items=[
+                        LogCreate(
+                            event="account.status",
+                            source="scheduler",
+                            account_id=item.id,
+                            user_id=item.user_id,
+                            status=item.status
+                        )
+                        for item in updated_accounts
+                    ],
+                    commit=False
+                )
+                await db.commit()
+                updated_count = len(updated_accounts)
 
         logger.info(
             f"Освобождено аккаунтов: {updated_count}",

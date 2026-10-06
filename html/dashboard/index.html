@@ -22,6 +22,18 @@
             <div id="drawer">
                 <div id="dashboard-content">
                     <main class="dashboard-shell" aria-label="Обзор сервиса">
+                        <section id="dashboard-live" class="dashboard-live" aria-label="Текущее состояние аккаунтов" aria-busy="true">
+                            <div class="dashboard-live-heading"><span class="dashboard-live-dot"></span><strong>Сейчас</strong><span id="dashboard-live-scope">По текущему владельцу аккаунта, независимо от периода</span><span id="dashboard-live-updated" role="status" aria-live="polite">Загрузка…</span></div>
+                            <div><strong id="dashboard-live-available">—</strong><span>Готовы к выдаче</span></div>
+                            <div><strong id="dashboard-live-active">—</strong><span>Активные аккаунты</span></div>
+                            <div><strong id="dashboard-live-paused">—</strong><span>В cooldown</span></div>
+                            <div><strong id="dashboard-live-banned">—</strong><span>Забанены сейчас</span></div>
+                            <div id="dashboard-live-error" class="dashboard-error" role="alert" hidden>
+                                <span></span>
+                                <button id="dashboard-live-retry" type="button">Повторить</button>
+                            </div>
+                        </section>
+
                         <section class="dashboard-filters" aria-label="Фильтры дашборда">
                             <div class="dashboard-filter">
                                 <label for="dashboard-start">Начало периода * · UTC</label>
@@ -33,7 +45,7 @@
                             </div>
                             <div id="dashboard-user-filter" class="dashboard-filter" hidden>
                                 <label for="dashboard-user">Пользователь</label>
-                                <input id="dashboard-user" />
+                                <input id="dashboard-user" aria-describedby="dashboard-scope-help" />
                                 <span id="dashboard-options-state" class="dashboard-filter-help" role="status"></span>
                                 <div id="dashboard-options-error" class="dashboard-filter-error" role="alert" hidden>
                                     <span></span>
@@ -48,6 +60,7 @@
                                 <button id="dashboard-apply" type="button">Применить</button>
                             </div>
                             <p id="dashboard-range-help" class="dashboard-filter-help">Без окончания — до текущего момента. Максимальный период — один календарный месяц. Окончание не включается в период.</p>
+                            <p id="dashboard-scope-help" class="dashboard-filter-help">История — по пользователю, записанному в журнале. «Сейчас» — по текущему владельцу аккаунта. Эти области могут различаться.</p>
                         </section>
                         <div id="dashboard-error" class="dashboard-error" role="alert" hidden></div>
                         <button id="dashboard-login" type="button" hidden>Войти заново</button>
@@ -62,7 +75,7 @@
                                 </div>
                                 <span id="dashboard-comparison" class="dashboard-period-note"></span>
                             </div>
-                            <p id="dashboard-history-note" class="dashboard-panel-footnote">Статистика рассчитана по сохранённым событиям. 0 — нет записанных событий; это не гарантирует отсутствия активности в прошлом.</p>
+                            <p id="dashboard-history-note" class="dashboard-panel-footnote">Статистика рассчитана по сохранённым событиям журнала и записанному в них пользователю (log.user_id). 0 — нет записанных событий; это не гарантирует отсутствия активности в прошлом. Первые подтверждения сообщений определяются в истории выбранного пользователя, а для всех пользователей — во всей истории.</p>
                             <div id="dashboard-coverage" class="dashboard-notice" role="status" hidden></div>
                             <div id="dashboard-metrics" class="dashboard-metrics"></div>
                         </section>
@@ -91,24 +104,6 @@
                                 </article>
                                 <article class="dashboard-panel">
                                     <div class="dashboard-panel-heading">
-                                        <div><h3>Статусы сообщений</h3><p id="dashboard-status-caption"></p></div>
-                                        <div class="dashboard-delivery">
-                                            <strong id="dashboard-delivery-rate">—</strong>
-                                            <span>доставляемость</span>
-                                        </div>
-                                    </div>
-                                    <div id="dashboard-status-chart" class="dashboard-chart" role="img" aria-label="Распределение сообщений по текущим статусам"></div>
-                                    <p class="dashboard-panel-footnote" id="dashboard-delivery-note"></p>
-                                </article>
-                                <article class="dashboard-panel">
-                                    <div class="dashboard-panel-heading">
-                                        <div><h3>Статистика сессий</h3><p>Открыто, завершено и забанено за выбранный период</p></div>
-                                    </div>
-                                    <div id="dashboard-session-status-chart" class="dashboard-chart" role="img" aria-label="Итоги открытий, завершений и банов сессий"></div>
-                                    <p class="dashboard-panel-footnote">Количество операций за период, не снимок текущих состояний.</p>
-                                </article>
-                                <article class="dashboard-panel">
-                                    <div class="dashboard-panel-heading">
                                         <div><h3>Сбои загрузки аккаунтов</h3><p>account.error</p></div>
                                     </div>
                                     <div id="dashboard-account-errors-chart" class="dashboard-chart" role="img" aria-label="Динамика account.error"></div>
@@ -121,18 +116,6 @@
                                     <div id="dashboard-session-errors-chart" class="dashboard-chart" role="img" aria-label="Динамика session.error"></div>
                                     <p class="dashboard-panel-footnote">Сбои старта, завершения и бана сессии, зарегистрированные сервисом.</p>
                                 </article>
-                            </div>
-                        </section>
-
-                        <section id="dashboard-live" class="dashboard-live" aria-label="Текущее состояние аккаунтов" aria-busy="true">
-                            <div class="dashboard-live-heading"><span class="dashboard-live-dot"></span><strong>Сейчас</strong><span id="dashboard-live-scope">Текущая область данных</span><span id="dashboard-live-updated" role="status" aria-live="polite">Загрузка…</span></div>
-                            <div><strong id="dashboard-live-available">—</strong><span>Готовы к выдаче</span></div>
-                            <div><strong id="dashboard-live-active">—</strong><span>Активные аккаунты</span></div>
-                            <div><strong id="dashboard-live-paused">—</strong><span>В cooldown</span></div>
-                            <div><strong id="dashboard-live-banned">—</strong><span>Забанены сейчас</span></div>
-                            <div id="dashboard-live-error" class="dashboard-error" role="alert" hidden>
-                                <span></span>
-                                <button id="dashboard-live-retry" type="button">Повторить</button>
                             </div>
                         </section>
 

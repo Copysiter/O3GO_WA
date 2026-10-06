@@ -83,10 +83,12 @@ async def get_summary(
     db: AsyncSession = Depends(deps.get_db),
     current_user: User = Depends(deps.get_current_active_user),
 ) -> StatsSummary:
-    """Read a UTC reporting period within the authenticated user's scope.
+    """Read retained UTC audit events within the recorded user's scope.
 
-    Administrators may select any owner or omit user_id for all owners.
+    Administrators may select any user or omit user_id for all users.
     Example: ?start_at=2026-09-01T00:00:00Z&end_at=2026-09-02T00:00:00Z.
+    All event groups use log.user_id, not current account ownership.
+    First confirmations are found within the selected user's log history.
     Counts describe retained events, not completeness of audit collection.
     Coverage dates are null; error counts with missing operation IDs are null.
     """

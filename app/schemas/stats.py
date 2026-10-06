@@ -33,7 +33,6 @@ StatsUserId = Annotated[
 StatsCount = Annotated[int, Field(ge=0, strict=True)]
 StatsGranularity = Literal["hour", "day"]
 StatsCoverageState = Literal["recorded", "partial", "unavailable"]
-StatsMessageStatusName = Literal["sent", "delivered", "undelivered", "failed"]
 
 
 class StatsModel(BaseModel):
@@ -99,48 +98,12 @@ class StatsMetrics(StatsModel):
     account_errors: StatsCount | None
     session_errors: StatsCount | None
     auto_finished: StatsCount | None
-    message_created: StatsCount | None
 
 
 class StatsTrendPoint(StatsMetrics):
     key: UTCDateTime
     from_at: UTCDateTime
     to_at: UTCDateTime
-
-
-class StatsMessageStatus(StatsModel):
-    status: StatsMessageStatusName
-    value: StatsCount
-
-
-class StatsSessionStatus(StatsModel):
-    status: Literal["opened", "finished", "banned"]
-    value: StatsCount | None
-
-
-class StatsMessageCohort(StatsModel):
-    total: StatsCount
-    created: StatsCount
-    waiting: StatsCount
-    unknown_status: StatsCount
-
-
-class StatsDelivery(StatsModel):
-    delivered: StatsCount
-    terminal: StatsCount
-    rate: Annotated[float, Field(ge=0, le=100, allow_inf_nan=False)] | None
-
-    @model_validator(mode="after")
-    def validate_delivery(self) -> Self:
-        if self.delivered > self.terminal:
-            raise ValueError(
-                "Delivered messages cannot exceed terminal outcomes"
-            )
-        if (self.terminal == 0) != (self.rate is None):
-            raise ValueError(
-                "Delivery rate is null exactly when terminal is zero"
-            )
-        return self
 
 
 class StatsCoverageGroup(StatsModel):
@@ -173,22 +136,7 @@ class StatsSummary(StatsPeriod):
     totals: StatsMetrics
     previous: StatsMetrics
     trend: list[StatsTrendPoint] = Field(max_length=32)
-    statuses: list[StatsMessageStatus] = Field(min_length=4, max_length=4)
-    message_cohort: StatsMessageCohort
-    session_statuses: list[StatsSessionStatus] = Field(
-        min_length=3, max_length=3,
-    )
-    delivery: StatsDelivery
     coverage: StatsCoverage
-
-    @field_validator("statuses", "session_statuses")
-    @classmethod
-    def validate_unique_statuses(
-        cls, values: list[StatsMessageStatus] | list[StatsSessionStatus],
-    ) -> list[StatsMessageStatus] | list[StatsSessionStatus]:
-        if len({item.status for item in values}) != len(values):
-            raise ValueError("Status entries must not be duplicated")
-        return values
 
 
 class StatsLive(StatsModel):

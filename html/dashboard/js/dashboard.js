@@ -27,9 +27,9 @@
         { key: 'accountBans', label: 'Баны аккаунтов', tone: 'red', icon: 'account-off', negative: true,
             description: 'Зарегистрированные переходы аккаунтов в BANNED. Не каждый бан сессии приводит к бану аккаунта.' },
         { key: 'sent', label: 'Подтверждено отправок', tone: 'blue', icon: 'send',
-            description: 'Первые сохранённые подтверждения SENT, DELIVERED или UNDELIVERED. Это не число сообщений, которые сейчас имеют статус SENT.' },
+            description: 'Первые сохранённые подтверждения SENT, DELIVERED или UNDELIVERED в истории выбранного пользователя журнала; для всех пользователей — во всей истории.' },
         { key: 'delivered', label: 'Подтверждено доставок', tone: 'teal', icon: 'check-all',
-            description: 'Первые подтверждения доставки сообщений, зарегистрированные за выбранный период.' },
+            description: 'Первые сохранённые подтверждения доставки в истории выбранного пользователя журнала; для всех пользователей — во всей истории. Учитываются подтверждения, попавшие в выбранный период.' },
         { key: 'accountErrors', label: 'Сбои загрузки аккаунтов', tone: 'red', icon: 'alert-circle-outline', negative: true,
             description: 'Операции с account.error. Сбой после сохранения аккаунта может сопровождаться HTTP 201.' },
         { key: 'sessionErrors', label: 'Сбои операций сессий', tone: 'red', icon: 'alert-outline', negative: true,
@@ -218,35 +218,6 @@
         updateChart('#dashboard-messages-chart', trend, chartSeries(['sent', 'delivered', 'undelivered', 'failed']));
         updateChart('#dashboard-account-errors-chart', trend, chartSeries(['accountErrors']));
         updateChart('#dashboard-session-errors-chart', trend, chartSeries(['sessionErrors']));
-        renderDistribution('#dashboard-status-chart', snapshot ? snapshot.statuses : [], false);
-        renderDistribution('#dashboard-session-status-chart', snapshot ? snapshot.sessionStatuses : [], true);
-    }
-
-    function renderDistribution(selector, statuses, sessions) {
-        var data = statuses.map(function (item) {
-            var key = item.status === 'banned' ? 'sessionBans' : item.status;
-            return { label: sessions ? item.label : item.status.toUpperCase(), caption: item.label,
-                value: item.value, color: colors[seriesInfo[key].color] };
-        });
-        updateChart(selector, data, [{
-            type: 'bar', field: 'value', categoryField: 'label', colorField: 'color',
-            missingValues: 'gap',
-            labels: { visible: true, font: '11px Arial', color: '#667b95', template: function (event) {
-                return event.dataItem.value === null ? '' : number(event.dataItem.value);
-            } }
-        }], {
-            legend: { visible: false },
-            categoryAxis: { reverse: true, labels: { step: 1 } },
-            tooltip: { template: function (event) { return encode(event.dataItem.caption) + ': <strong>' + number(event.dataItem.value) + '</strong>'; } },
-            seriesClick: function (event) {
-                if (!snapshot || summaryBusy || event.dataItem.value === null) return;
-                openDetails('Статус ' + event.dataItem.label,
-                    '<p>' + encode(event.dataItem.caption) + '</p><div class="dashboard-modal-value">' + number(event.value) + '</div>' +
-                    '<p>' + encode(rangeCaption()) + '</p>' +
-                    '<p class="dashboard-modal-note">' + (sessions ? 'Количество операций за период.' : 'Текущие статусы сообщений, зарегистрированных за период.') +
-                    (demo ? ' ДЕМО: все данные вымышлены.' : '') + '</p>');
-            }
-        });
     }
 
     function openDetails(title, content) {
@@ -339,7 +310,7 @@
             if (parts.length) items.push('<li>' + encode(coverageGroups[name].label + ': ' + parts.join('; ')) + '.</li>');
         });
         $('#dashboard-coverage').prop('hidden', !items.length).html(items.length ?
-            '<strong>Неизвестный или неполный учёт.</strong> «—» не означает ноль. Данные текущих статусов сообщений доступны отдельно.' +
+            '<strong>Неизвестный или неполный учёт.</strong> «—» не означает ноль.' +
             '<ul>' + items.join('') + '</ul>' : '');
     }
 
@@ -366,8 +337,7 @@
     function clearSummary() {
         snapshot = null;
         if (detailsWindow) detailsWindow.close();
-        $('#dashboard-scope, #dashboard-comparison, #dashboard-range, #dashboard-session-note, #dashboard-delivery-note').empty();
-        $('#dashboard-delivery-rate').text('—');
+        $('#dashboard-scope, #dashboard-comparison, #dashboard-range, #dashboard-session-note').empty();
         renderCoverage();
         renderMetrics();
         renderCharts();
@@ -440,13 +410,11 @@
     }
 
     function renderSummary() {
-        $('#dashboard-scope').text(snapshot.scopeLabel + ' · ' + rangeCaption() + (snapshot.endAt === null ? ' · до текущего момента' : ''));
+        $('#dashboard-scope').text(snapshot.scopeLabel + ' · ' + rangeCaption() + ' · по пользователю журнала' +
+            (snapshot.endAt === null ? ' · до текущего момента' : ''));
         $('#dashboard-comparison').text('Сравнение: ' + displayDate(snapshot.comparison.startAt) + ' — ' + displayDate(snapshot.comparison.endAt) + ' UTC');
         $('#dashboard-range').text(rangeCaption() + ' · ' + (snapshot.granularity === 'hour' ? 'по часам' : 'по дням'));
         $('#dashboard-session-note').text('За период завершено планировщиком: ' + number(snapshot.totals.autoFinished) + '.');
-        $('#dashboard-status-caption').text('Текущие статусы сообщений, зарегистрированных за период');
-        $('#dashboard-delivery-rate').text(percent(snapshot.delivery.rate));
-        $('#dashboard-delivery-note').text('Доставляемость по ' + number(snapshot.delivery.terminal) + ' завершённым результатам. CREATED и WAITING не показаны.');
         renderCoverage();
         renderMetrics();
         renderCharts();
@@ -466,7 +434,7 @@
             ['available', 'active', 'paused', 'banned'].forEach(function (key) {
                 $('#dashboard-live-' + key).text(number(data[key]));
             });
-            $('#dashboard-live-scope').text(data.scopeLabel + ' · независимо от периода');
+            $('#dashboard-live-scope').text(data.scopeLabel + ' · по текущему владельцу аккаунта · независимо от периода');
             $('#dashboard-live-updated').text('Обновлено ' + displayDate(data.asOf) + ' UTC');
             $('#dashboard-live').attr('data-state', 'ready');
         }).catch(function (error) {

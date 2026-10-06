@@ -1,6 +1,7 @@
 from typing import Any, Sequence
 
-from sqlalchemy import func, select, update
+from sqlalchemy import Integer, any_, bindparam, func, select, update
+from sqlalchemy.dialects.postgresql import ARRAY
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.crud.base import CRUDBase
@@ -17,6 +18,23 @@ class AccountCRUD(
 
     def __init__(self) -> None:
         super().__init__(model=Account, filter_class=AccountFilter)
+
+    async def get_owner_ids(
+        self, db: AsyncSession, *, account_ids: Sequence[int]
+    ) -> dict[int, int]:
+        """Read current scalar owners in one query, without relationships."""
+        ids = sorted(set(account_ids))
+        if not ids:
+            return {}
+        columns = Account.__table__.c
+        # One array bind also supports batches above asyncpg's argument limit.
+        owner_ids = bindparam("account_ids", value=ids, type_=ARRAY(Integer))
+        result = await db.execute(
+            select(columns.id, columns.user_id).where(
+                columns.id == any_(owner_ids)
+            )
+        )
+        return {row[0]: row[1] for row in result.all()}
 
     async def get_upload_snapshot(
         self,

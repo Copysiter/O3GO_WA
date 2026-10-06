@@ -140,7 +140,7 @@
     display: flex;
     flex-wrap: wrap;
     gap: 16px 24px;
-    align-items: flex-end;
+    align-items: flex-start;
     padding: 18px 20px;
     border: 1px solid #e1e7ee;
     border-radius: 9px;
@@ -154,6 +154,7 @@
     color: #768397;
     font-size: 11px;
     font-weight: 600;
+    line-height: 16px;
 }
 
 .dashboard-filter {
@@ -169,6 +170,7 @@
 
 .dashboard-filter-action {
     margin-left: auto;
+    padding-top: 24px;
 }
 
 .dashboard-filter-help {
@@ -182,6 +184,10 @@
 #dashboard-options-state {
     display: block;
     margin-top: 6px;
+}
+
+#dashboard-options-state:empty {
+    display: none;
 }
 
 #dashboard-live-error > span {
@@ -348,29 +354,12 @@
     font-size: inherit;
 }
 
-.dashboard-delivery {
-    flex-shrink: 0;
-    text-align: right;
-}
-
-.dashboard-delivery strong {
-    display: block;
-    color: #148976;
-    font-size: 24px;
-    line-height: 1.1;
-}
-
-.dashboard-delivery > span {
-    color: #8191a4;
-    font-size: 10px;
-}
-
 .dashboard-live {
     display: grid;
     grid-template-columns: 1.4fr repeat(4, 1fr);
     gap: 16px;
     align-items: center;
-    margin-top: 20px;
+    margin-bottom: 20px;
     padding: 20px;
     border: 1px solid #e1e7ee;
     border-radius: 9px;
@@ -454,7 +443,7 @@
     .dashboard-filter { width: 100%; }
     .dashboard-filter .k-datetimepicker,
     #dashboard-user-filter .k-dropdownlist { width: 100%; }
-    .dashboard-filter-action { margin-left: 0; }
+    .dashboard-filter-action { margin-left: 0; padding-top: 0; }
     .dashboard-metrics { gap: 8px; }
     .dashboard-metric { padding: 12px; }
     .dashboard-metric-icon { display: none; }
