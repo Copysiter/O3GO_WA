@@ -5,7 +5,7 @@ $(document).ready(function () {
     <a href='/dashboard/' data-role='drawer-item' class='${
         $('body').attr('data-id') == 'dashboard' ? 'k-selected ' : ''
     }d-flex align-items-center text-decoration-none p-0' id='dashboard-icon' title='Dashboard'>
-    <span><i class='mdi mdi-view-dashboard fs-20'></i></span>
+    <span><i class='mdi mdi-view-grid fs-20'></i></span>
     <span class='k-item-text flex-grow-1 fs-14 ps-0 pe-20' data-id='dashboard'>Dashboard</span>
     </a>
     </li>`;
