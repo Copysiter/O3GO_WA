@@ -9,11 +9,9 @@ $(document).ready(function () {
     <span class='k-item-text flex-grow-1 fs-14 ps-0 pe-20' data-id='dashboard'>Dashboard</span>
     </a>
     </li>`;
-    
-    const dashboardNavigation1 ='';
 
     const drawerRootTemplate = `<ul>
-    ${dashboardNavigation1}
+    ${dashboardNavigation}
     <li>
     <a href='/accounts/' data-role='drawer-item' class='${
         $('body').attr('data-id') == 'accounts' ? 'k-selected ' : ''
@@ -65,7 +63,7 @@ $(document).ready(function () {
     </ul>`;
 
     const drawerUserTemplate = `<ul>
-    ${dashboardNavigation1}
+    ${dashboardNavigation}
     <li>
     <a href='/accounts/' data-role='drawer-item' class='${
         $('body').attr('data-id') == 'accounts' ? 'k-selected ' : ''
