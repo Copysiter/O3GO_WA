@@ -2,12 +2,31 @@
 template: changes
 version: 1
 status: complete
-updated: "2026-10-05"
+updated: "2026-10-12"
 required_sections: []
 optional_sections: []
 ---
 
 # Изменения контекста проекта
+
+## 2026-10-12
+
+### Добавлено
+- Описан реализованный account/file-аудит внешнего и административного API по `plans/261011-account-file-audit-dashboard/plan.md`: архивные `account.file.upload/delete` и их `.error`, transactional `account.delete`, независимые ошибки account-обработчиков, включая GET без success-событий. Profile-only действия и ошибки новых DB-записей не создают; файловая ошибка не дублируется общим `account.error`. Ошибки auth/multipart/валидации зависимостей до входа в обработчик не включены в этот охват.
+- Зафиксированы `LogService.operation_context`, `queue_event` и `flush_events`, явные action/source, nullable actor и immutable факты запроса. Факт сохраняет безопасный target/details и db_outcome на момент наблюдения; transaction_released относится к финализации. Writer работает после подтверждённого release, bool означает release, не успешность аудита. Защищённое завершение дренирует весь буфер при повторной отмене; release latch, отсутствие retry неизвестного audit commit, первичная ошибка и fallback сохранены. Очередь в памяти не обещает crash-durability или exactly-once.
+- Описан `AccountCRUD.delete_returning_id`: DELETE RETURNING подтверждает удаление для общей транзакции с account.delete. Новые delete и связанные file/error события имеют NULL доменные FK и target-снимки; bulk сохраняет один operation UUID и отдельные цели. Это не изменение старых CASCADE/retention или member logs scope: NULL-FK строка может учитываться в actor-summary, но не отображаться в его журнале.
+- Добавлены ссылки на новые audit/admin/SQL/filter-регрессии и итоговую совместную приёмку `plans/261011-account-file-audit-dashboard/phase5.md`: **1661 Python** в 31 файле, **190 Node**, **157 Chromium-сценариев**, **244 wire samples** (240 StatsSummary и 4 StatsLive). Flake8 25 файлов и mypy пяти runtime-модулей с `--follow-imports=skip --ignore-missing-imports` прошли; весь Python-репозиторий и полный legacy ext/account.py успешными не объявляются, прежние 34 flake8/две mypy ошибки сохранены.
+- Сохранены границы приёмки: отдельная PostgreSQL 12.22, guards и UUID-схемы, временный `account-file-audit-phase5.5v1UfT`, очищенное окружение, dummy app DSN на порту 1, без рабочей `.env` и production lifespan. Собственный PG-контейнер удалён после проверки пустых схем; прежний endpoint 56215 недействующий. Browser использовал фактические scripts/jQuery/Kendo с HTTP/clock fixtures, внешний Playwright и Chromium; 28 screenshots и отчёт находятся в каталоге прогона. BFCache/storage синтетические, seriesClick через Kendo dispatcher; production API, Firefox/WebKit и SVG pointer hit-testing не проверялись.
+
+### Изменено
+- Активные спецификации отражают **17 обязательных nullable-метрик и семь coverage-групп**. `closed = finished + session_bans` считается SQL без повторного auto_finished. Success-счётчики принимают точные account.file.upload/create/update без новых source/FK/action/operation_id требований; legacy context={} и hash/admin update сохранены. Три account-error группы учитывают api/ext_api, session.error — только ext_api; дедупликация по event/source/log.user_id/operation_id с global-first включает NULL actor. Только missing/null/empty operation_id маскирует соответствующую одну из четырёх error-групп всего затронутого периода и его buckets. Ручные даты и backfill не возвращены.
+- Устранены устаревшие текущие описания cohort/доставляемости, owner-scoped истории, восьми карточек и скрытой навигации. Summary уже был log-only по log.user_id в baseline задачи, live остаётся по текущему владельцу. Anonymous события входят только в admin-all. UI содержит **12 карточек и шесть графиков**, фильтр журнала — **19 вариантов event**, без whitelist чтения произвольных строк. График сообщений сохраняет четыре серии, включая failed без отдельной карточки, порядок/цвета/tooltip/клики. SQL-агрегаты не пересчитываются в браузере; NULL, guards и независимый live сохранены.
+- Закреплены решения Q1/Q2: account.update остаётся в upload, обоих hash-маршрутах и admin PUT без status; PUT с присутствующим status выбирает account.status. Standalone `/api/v1/accounts/upload` и `/remove` сохраняют отсутствие обязательного JWT и всегда новый actor=NULL независимо от непроверенных credentials. Архивный widget, профильные endpoints и общий auth/header не переработаны. Видимая ссылка меню и пользовательские auth/CSS/live-изменения уже находились в baseline и не приписываются этой реализации.
+- Синхронизированы семь файлов: `overview.md`, `architecture.md`, `conventions.md`, `constraints.md`, `stack.md`, `structure.md` и этот журнал. Frontmatter updated — 2026-10-12, status complete обозначает полноту документации, не релиз. `integrations.md` оставлен без изменений: новых внешних интеграций нет. Исторические записи ниже и старые планы сохранены; результаты фаз не суммируются и не выдаются за свежий запуск при этой синхронизации.
+- Актуальная передача ссылается на подготовленный, но не выполненный `plans/261011-account-file-audit-dashboard/rollout.md`. Новый UI требует 17/7: выпуск backend → UI, откат совместимый UI → backend с учётом кеша и открытых вкладок. Код, локальные проверки и документация завершены; операторский пункт остаётся открытым, статус плана in-progress сохранён. Production metadata/retention, согласованная стоимость, окружение, релиз/откат и охват audit writers всех workers не подтверждены. Одобрение документации не разрешает rollout.
+
+### Причина
+Пользователь поручением «Обнови» явно одобрил объём `documentation-update-proposal.md`. Спецификации приведены к фактической реализации и результатам совместной локальной приёмки. Во время этой синхронизации менялась только документация: приложение и тесты заново не запускались, код, рабочая `.env`, БД, миграции и deployment не затрагивались.
 
 ## 2026-10-05
 

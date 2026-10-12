@@ -77,7 +77,7 @@ body {
     border: none;
     background-color: #23282f;
 }
-#drawer div {
+#drawer > .k-drawer-wrapper {
     height: 100%;
 }
 #drawer a {

@@ -33,8 +33,13 @@ from app.schemas.stats import (
 _UTC_DATETIME = TypeAdapter(UTCDateTime)
 _COVERAGE_GROUPS = (
     "lifecycle", "message_events", "account_errors", "session_errors",
+    "account_events", "account_file_upload_errors",
+    "account_file_delete_errors",
 )
-_ERROR_GROUPS = ("account_errors", "session_errors")
+_ERROR_GROUPS = (
+    "account_errors", "session_errors", "account_file_upload_errors",
+    "account_file_delete_errors",
+)
 
 
 class StatsPeriodError(ValueError):
@@ -90,7 +95,13 @@ lifecycle_buckets AS MATERIALIZED (
                             AND l.status = 'banned') AS account_bans,
            COUNT(*) FILTER (WHERE l.event = 'session.status'
                             AND l.status = 'finished'
-                            AND l.source = 'scheduler') AS auto_finished
+                            AND l.source = 'scheduler') AS auto_finished,
+           COUNT(*) FILTER (WHERE l.event = 'account.file.upload')
+               AS accounts_uploaded,
+           COUNT(*) FILTER (WHERE l.event = 'account.create')
+               AS accounts_created,
+           COUNT(*) FILTER (WHERE l.event = 'account.update')
+               AS accounts_updated
     FROM log l
     WHERE l.created_at >= :previous_start
       AND l.created_at < :effective_end_at {log_scope}
@@ -102,6 +113,8 @@ lifecycle_buckets AS MATERIALIZED (
           ))
           OR (l.account_id IS NOT NULL
               AND l.event = 'account.status' AND l.status = 'banned')
+          OR l.event IN ('account.file.upload', 'account.create',
+                        'account.update')
       )
     GROUP BY 1, 2
 ),
@@ -134,21 +147,32 @@ message_facts AS (
     SELECT failed_at, 'failed' FROM message_first
 ),
 error_first AS (
-    SELECT l.event, l.user_id,
+    SELECT l.event, l.source, l.user_id,
            NULLIF(l.context ->> 'operation_id', '') AS operation_id,
            MIN(l.created_at) AS at
     FROM log l
-    WHERE l.source = 'ext_api'
-      AND l.event IN ('account.error', 'session.error')
+    WHERE (
+        (l.event IN ('account.error', 'account.file.upload.error',
+                     'account.file.delete.error')
+         AND l.source IN ('api', 'ext_api'))
+        OR (l.event = 'session.error' AND l.source = 'ext_api')
+      )
       AND NULLIF(l.context ->> 'operation_id', '') IS NOT NULL
       AND l.created_at < :effective_end_at {log_scope}
       AND :previous_start < :effective_end_at
-    GROUP BY l.event, l.user_id, NULLIF(l.context ->> 'operation_id', '')
+    GROUP BY l.event, l.source, l.user_id,
+             NULLIF(l.context ->> 'operation_id', '')
 ),
 error_facts AS (
     SELECT f.at,
-           CASE f.event WHEN 'account.error' THEN 'account_errors'
-                         ELSE 'session_errors' END AS metric
+           CASE f.event
+               WHEN 'account.error' THEN 'account_errors'
+               WHEN 'session.error' THEN 'session_errors'
+               WHEN 'account.file.upload.error'
+                   THEN 'account_file_upload_errors'
+               WHEN 'account.file.delete.error'
+                   THEN 'account_file_delete_errors'
+           END AS metric
     FROM error_first f
 ),
 facts AS (
@@ -181,17 +205,39 @@ counters AS (
     SELECT period, key, 'auto_finished', auto_finished
     FROM lifecycle_buckets WHERE auto_finished > 0
     UNION ALL
+    SELECT period, key, 'closed', finished + session_bans
+    FROM lifecycle_buckets WHERE finished + session_bans > 0
+    UNION ALL
+    SELECT period, key, 'accounts_uploaded', accounts_uploaded
+    FROM lifecycle_buckets WHERE accounts_uploaded > 0
+    UNION ALL
+    SELECT period, key, 'accounts_created', accounts_created
+    FROM lifecycle_buckets WHERE accounts_created > 0
+    UNION ALL
+    SELECT period, key, 'accounts_updated', accounts_updated
+    FROM lifecycle_buckets WHERE accounts_updated > 0
+    UNION ALL
     SELECT period, key, metric, value FROM event_buckets
 ),
 gap_counts AS (
     SELECT CASE WHEN l.created_at >= :start_at
                 THEN 'current' ELSE 'previous' END AS period,
-           CASE l.event WHEN 'account.error' THEN 'account_errors'
-                         ELSE 'session_errors' END AS metric_group,
+           CASE l.event
+               WHEN 'account.error' THEN 'account_errors'
+               WHEN 'session.error' THEN 'session_errors'
+               WHEN 'account.file.upload.error'
+                   THEN 'account_file_upload_errors'
+               WHEN 'account.file.delete.error'
+                   THEN 'account_file_delete_errors'
+           END AS metric_group,
            COUNT(*) AS invalid_rows
     FROM log l
-    WHERE l.event IN ('account.error', 'session.error')
-      AND l.source = 'ext_api' {log_scope}
+    WHERE (
+        (l.event IN ('account.error', 'account.file.upload.error',
+                     'account.file.delete.error')
+         AND l.source IN ('api', 'ext_api'))
+        OR (l.event = 'session.error' AND l.source = 'ext_api')
+      ) {log_scope}
       AND NULLIF(l.context ->> 'operation_id', '') IS NULL
       AND l.created_at >= :previous_start
       AND l.created_at < :effective_end_at

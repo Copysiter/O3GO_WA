@@ -186,6 +186,15 @@ async def _save_upload_file(file: UploadFile, file_path: Path) -> None:
         await destination.write(content)
 
 
+def _unlink_upload_file(file_path: Path) -> bool:
+    """Distinguish a completed unlink from an idempotent missing-file skip."""
+    try:
+        file_path.unlink()
+    except FileNotFoundError:
+        return False
+    return True
+
+
 def _account_not_found() -> HTTPException:
     return HTTPException(
         status_code=status.HTTP_404_NOT_FOUND,
@@ -284,16 +293,29 @@ async def upload_archive(
     Зависимости предоставляют сессию БД, пользователя и поля AccountUpload.
     Файловый I/O выполняется между короткими транзакциями. Старые файлы
     удаляются только после подтверждённого commit и проверки ссылок на них.
-    Ошибки cleanup журналируются независимо и не отменяют успешную загрузку.
+    Факты архива аудируются независимо; профильные ошибки дают только
+    техническую диагностику. Ошибки cleanup не отменяют успешную загрузку.
     """
     actor_id = user.id
-    audit = log_service.operation(action="account.upload", user_id=actor_id)
+    audit = log_service.operation(
+        action="account.upload", user_id=actor_id, source="ext_api",
+    )
     before: dict[str, Any] | None = None
     requested: dict[str, Any] | None = None
     returned: dict[str, Any] | None = None
     branch: Literal["create", "update"] | None = None
     provided_fields: set[str] = set()
     files_written: list[str] = []
+
+    def set_stage(
+        stage: str, *, error_event: str | None = None,
+        persist_error: bool = True,
+    ) -> None:
+        # Classification must survive a failed details callback and must not
+        # leak profile-only suppression into a later account operation.
+        audit.stage = stage
+        audit.error_event = error_event
+        audit.persist_error = persist_error
 
     def audit_details(cleanup: dict[str, Any] | None = None) -> dict[str, Any]:
         return log_service.upload_details(
@@ -305,24 +327,27 @@ async def upload_archive(
         )
 
     try:
+        set_stage("validate")
         provided_fields = set((await request.form()).keys())
         response_user = schemas.User.model_validate(user)
+        set_stage("validate_archive", error_event="account.file.upload.error")
         archive_filename = file.filename or ""
-        profile_filename = (
-            (profile_file.filename or "") if profile_file else ""
-        )
         if not archive_filename.endswith('.tar.gz'):
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="The file must have a .tar.gz extension"
             )
-        if profile_file and not profile_filename.endswith('.txt'):
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="The file must have a .txt extension"
-            )
+        profile_filename = ""
+        if profile_file:
+            set_stage("validate_profile", persist_error=False)
+            profile_filename = profile_file.filename or ""
+            if not profile_filename.endswith('.txt'):
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="The file must have a .txt extension"
+                )
 
-        audit.stage = "lookup"
+        set_stage("lookup")
         await session.begin()
         before = await crud.account.get_upload_snapshot(
             db=session, number=obj_in.number, user_id=actor_id
@@ -332,7 +357,7 @@ async def upload_archive(
         await session.commit()
         branch = "update" if before is not None else "create"
 
-        audit.stage = "validate"
+        set_stage("validate")
         timestamp = int(time.time())
         numbered_name = before is not None or bool(obj_in.number)
         file_name = (
@@ -358,17 +383,29 @@ async def upload_archive(
         if before is not None:
             requested["id"] = before["id"]
 
-        audit.stage = "write_archive"
+        set_stage("write_archive", error_event="account.file.upload.error")
         await _save_upload_file(file, UPLOAD_DIR / file_name)
         files_written.append("archive")
+        set_stage("audit_file_upload")
+        log_service.queue_event(
+            audit, event="account.file.upload", account_id=audit.account_id,
+            details={
+                "file_kind": "archive", "file_name": file_name,
+                "reason": "upload", "target": {"account_id": audit.account_id},
+            },
+        )
+        # The lookup transaction is already closed. Persist the file fact
+        # before profile/DB work; writer failure alone does not block either.
+        if not await log_service.flush_events(session, operation=audit):
+            raise RuntimeError("Account upload transaction release failed")
         if profile_file is not None and profile_file_name is not None:
-            audit.stage = "write_profile"
+            set_stage("write_profile", persist_error=False)
             await _save_upload_file(
                 profile_file, PROFILE_UPLOAD_DIR / profile_file_name
             )
             files_written.append("profile")
 
-        audit.stage = "db_write"
+        set_stage("db_write")
         await session.begin()
         if before is not None:
             account = await crud.account.update(
@@ -383,7 +420,7 @@ async def upload_archive(
                 db=session, obj_in=account_data, commit=False,
             )
 
-        audit.stage = "verify_returning"
+        set_stage("verify_returning")
         account_values = vars(account) if account is not None else None
         returned = log_service.upload_snapshot(account_values)
         if (
@@ -398,7 +435,7 @@ async def upload_archive(
         if before is None:
             audit.new_account_id = account_values["id"]
 
-        audit.stage = "audit"
+        set_stage("audit")
         await log_service.record(
             session,
             event=f"account.{branch}",
@@ -406,13 +443,14 @@ async def upload_archive(
             account_id=account_values["id"],
             user_id=actor_id,
             status=account_values.get("status"),
+            context=log_service.operation_context(audit),
             commit=False,
         )
-        audit.stage = "prepare_response"
+        set_stage("prepare_response")
         response = schemas.AccountExternal.model_validate({
             **account_values, "user": response_user,
         })
-        audit.stage = "commit"
+        set_stage("commit")
         audit.db_outcome = "unknown"
         await session.commit()
         audit.db_outcome = "committed"
@@ -422,7 +460,6 @@ async def upload_archive(
         )
         raise
 
-    audit.stage = "cleanup"
     for kind, column, directory, profile in (
         ("archive", "file_name", UPLOAD_DIR, False),
         ("profile", "profile_file_name", PROFILE_UPLOAD_DIR, True),
@@ -435,6 +472,7 @@ async def upload_archive(
             "path": directory / old_name, "action": "reference_check",
         }
         try:
+            set_stage("cleanup", persist_error=not profile)
             await session.begin()
             referenced = await crud.account.is_file_referenced(
                 db=session, file_name=old_name, profile=profile,
@@ -442,9 +480,32 @@ async def upload_archive(
             await session.commit()
             if not referenced:
                 cleanup["action"] = "delete"
-                await asyncio.to_thread(
-                    (directory / old_name).unlink, missing_ok=True,
+                set_stage(
+                    "cleanup", persist_error=not profile,
+                    error_event=(
+                        None if profile else "account.file.delete.error"
+                    ),
                 )
+                deleted = await asyncio.to_thread(
+                    _unlink_upload_file, directory / old_name,
+                )
+                if deleted and not profile:
+                    # A later flush cancellation is an audit-stage failure,
+                    # never a failed unlink of this already removed archive.
+                    set_stage("audit_file_delete")
+                    log_service.queue_event(
+                        audit, event="account.file.delete",
+                        account_id=audit.account_id,
+                        details={
+                            "file_kind": "archive", "file_name": old_name,
+                            "reason": "upload_cleanup",
+                            "target": {"account_id": audit.account_id},
+                        },
+                    )
+                    if not await log_service.flush_events(
+                        session, operation=audit,
+                    ):
+                        break
         except (Exception, asyncio.CancelledError) as error:
             released = await log_service.report_error(
                 session, error, operation=audit,
@@ -456,7 +517,7 @@ async def upload_archive(
                 break
 
     if not audit.release_failed and not session.in_transaction():
-        audit.stage = "success_log"
+        set_stage("success_log")
         try:
             await asyncio.to_thread(
                 logger.info,

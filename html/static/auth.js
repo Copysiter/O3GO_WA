@@ -123,7 +123,7 @@
 
     window.isAuth = window.getToken();
     if (window.isAuth && (loginPage() || document.location.pathname === '/' || document.location.pathname === '')) {
-        document.location.href = document.location.origin + '/accounts/';
+        document.location.href = document.location.origin + '/dashboard/';
     }
     window.checkAuth();
 })(window, jQuery);

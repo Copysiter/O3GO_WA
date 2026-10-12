@@ -6,7 +6,7 @@ $(document).ready(function () {
     console.log(document.location.path)
     console.log()
     if (isAuth) {
-        document.location.href = document.location.origin + '/accounts/';
+        document.location.href = document.location.origin + '/dashboard/';
     }
     $('#authorization')
         .kendoWindow({
@@ -110,7 +110,7 @@ $(document).ready(function () {
                 .done(function (data) {
                     console.log(data);
                     window.setToken(data);
-                    document.location.href = document.location.origin + '/accounts/';
+                    document.location.href = document.location.origin + '/dashboard/';
                 })
                 .fail(function (data) {
                     console.log(2, data);

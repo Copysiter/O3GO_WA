@@ -6,7 +6,10 @@
         ['opened', 'opened'], ['finished', 'finished'], ['session_bans', 'sessionBans'],
         ['account_bans', 'accountBans'], ['sent', 'sent'], ['delivered', 'delivered'],
         ['undelivered', 'undelivered'], ['failed', 'failed'], ['account_errors', 'accountErrors'],
-        ['session_errors', 'sessionErrors'], ['auto_finished', 'autoFinished']
+        ['session_errors', 'sessionErrors'], ['auto_finished', 'autoFinished'],
+        ['accounts_uploaded', 'accountsUploaded'], ['accounts_created', 'accountsCreated'],
+        ['accounts_updated', 'accountsUpdated'], ['account_file_delete_errors', 'accountFileDeleteErrors'],
+        ['account_file_upload_errors', 'accountFileUploadErrors'], ['closed', 'closed']
     ];
     var MESSAGES = {
         auth: 'Требуется повторный вход в систему.',
@@ -197,7 +200,10 @@
             comparison: { startAt: dateValue(raw.comparison.start_at), endAt: dateValue(raw.comparison.end_at) },
             trend: trend,
             coverage: { lifecycle: mapCoverage(raw.coverage.lifecycle), messageEvents: mapCoverage(raw.coverage.message_events),
-                accountErrors: mapCoverage(raw.coverage.account_errors), sessionErrors: mapCoverage(raw.coverage.session_errors) }
+                accountErrors: mapCoverage(raw.coverage.account_errors), sessionErrors: mapCoverage(raw.coverage.session_errors),
+                accountEvents: mapCoverage(raw.coverage.account_events),
+                accountFileUploadErrors: mapCoverage(raw.coverage.account_file_upload_errors),
+                accountFileDeleteErrors: mapCoverage(raw.coverage.account_file_delete_errors) }
         };
     }
 

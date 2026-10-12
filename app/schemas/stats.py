@@ -98,6 +98,12 @@ class StatsMetrics(StatsModel):
     account_errors: StatsCount | None
     session_errors: StatsCount | None
     auto_finished: StatsCount | None
+    accounts_uploaded: StatsCount | None
+    accounts_created: StatsCount | None
+    accounts_updated: StatsCount | None
+    account_file_delete_errors: StatsCount | None
+    account_file_upload_errors: StatsCount | None
+    closed: StatsCount | None
 
 
 class StatsTrendPoint(StatsMetrics):
@@ -128,6 +134,9 @@ class StatsCoverage(StatsModel):
     message_events: StatsCoverageGroup
     account_errors: StatsCoverageGroup
     session_errors: StatsCoverageGroup
+    account_events: StatsCoverageGroup
+    account_file_upload_errors: StatsCoverageGroup
+    account_file_delete_errors: StatsCoverageGroup
 
 
 class StatsSummary(StatsPeriod):

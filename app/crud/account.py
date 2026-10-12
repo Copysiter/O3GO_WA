@@ -1,6 +1,6 @@
 from typing import Any, Sequence
 
-from sqlalchemy import Integer, any_, bindparam, func, select, update
+from sqlalchemy import Integer, any_, bindparam, delete, func, select, update
 from sqlalchemy.dialects.postgresql import ARRAY
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -18,6 +18,29 @@ class AccountCRUD(
 
     def __init__(self) -> None:
         super().__init__(model=Account, filter_class=AccountFilter)
+
+    async def delete_returning_id(
+        self, db: AsyncSession, *, account_id: int,
+    ) -> int | None:
+        """Delete a row and synchronize the identity map, without commit.
+
+        The caller owns the transaction and snapshots the response before
+        deletion. An empty RETURNING is not evidence of a successful delete.
+        """
+        result = await db.execute(
+            delete(Account).where(Account.id == account_id)
+            .returning(Account.id)
+            .execution_options(synchronize_session="fetch")
+        )
+        deleted_id = result.scalar_one_or_none()
+        if deleted_id is None:
+            # A concurrent delete can leave the previously loaded instance in
+            # the identity map: fetch only synchronizes IDs in RETURNING.
+            key = db.sync_session.identity_key(Account, account_id)
+            stale = db.identity_map.get(key)
+            if stale is not None:
+                db.expunge(stale)
+        return deleted_id
 
     async def get_owner_ids(
         self, db: AsyncSession, *, account_ids: Sequence[int]

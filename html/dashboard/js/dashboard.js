@@ -15,25 +15,52 @@
         undelivered: { label: 'UNDELIVERED', color: 'warning' },
         failed: { label: 'FAILED', color: 'error' },
         accountErrors: { label: 'account.error', color: 'error' },
-        sessionErrors: { label: 'session.error', color: 'error' }
+        sessionErrors: { label: 'session.error', color: 'error' },
+        accountsUploaded: { label: 'Загружено аккаунтов', color: 'primary' },
+        accountsCreated: { label: 'Сохранено аккаунтов в БД', color: 'success' },
+        accountsUpdated: { label: 'Обновлено аккаунтов в БД', color: 'warning' },
+        accountFileDeleteErrors: { label: 'account.file.delete.error', color: 'primary' },
+        accountFileUploadErrors: { label: 'account.file.upload.error', color: 'warning' },
+        closed: { label: 'Завершено сессий (включая баны)', color: 'success' }
     };
     var metrics = [
-        { key: 'opened', label: 'Открыто сессий', tone: 'blue', icon: 'play-circle-outline',
-            description: 'Успешные открытия рабочих сессий за выбранный период.' },
-        { key: 'finished', label: 'Завершено сессий', tone: 'teal', icon: 'check-circle-outline',
-            description: 'Переходы сессий в FINISHED, включая автоматическое завершение.' },
-        { key: 'sessionBans', label: 'Баны сессий', tone: 'red', icon: 'cancel', negative: true,
-            description: 'Зарегистрированные переходы сессий в BANNED за выбранный период.' },
+        { key: 'accountsUploaded', label: 'Загружено аккаунтов', tone: 'blue', icon: 'upload',
+            description: 'Успешные загрузки основного архива из внешнего и административного API, записанные как account.file.upload. ' +
+                'Считаются операции, включая повторные загрузки, а не уникальные аккаунты. Профиль не учитывается. ' +
+                'Факт загрузки независим от сохранения аккаунта в БД; последующий сбой профиля или БД его не отменяет.' },
+        { key: 'accountsCreated', label: 'Сохранено аккаунтов в БД', tone: 'teal', icon: 'database-plus',
+            description: 'Создания новых строк аккаунтов по сохранённым account.create, включая старые записи с пустым context. ' +
+                'Создание записи в БД не подтверждает загрузку файла.' },
+        { key: 'accountsUpdated', label: 'Обновлено аккаунтов в БД', tone: 'blue', icon: 'database-edit',
+            description: 'Сохранённые account.update из внешней загрузки, административного PUT без status и обоих hash-маршрутов, ' +
+                'включая старые записи с пустым context. Считаются события обновления, а не уникальные аккаунты; ' +
+                'обновление записи в БД не подтверждает загрузку архива.' },
         { key: 'accountBans', label: 'Баны аккаунтов', tone: 'red', icon: 'account-off', negative: true,
             description: 'Зарегистрированные переходы аккаунтов в BANNED. Не каждый бан сессии приводит к бану аккаунта.' },
+        { key: 'accountErrors', label: 'Ошибки операций с аккаунтами в БД', tone: 'red', icon: 'alert-circle-outline', negative: true,
+            description: 'Операции с общим account.error из административного и внешнего API, включая сбои чтения, валидации и других этапов. ' +
+                'Это не только SQL-ошибки. Старые файловые и профильные ошибки остаются в этой группе и не переносятся в новые файловые категории. ' +
+                'Ошибка после сохранения аккаунта может сопровождаться HTTP 201.' },
+        { key: 'accountFileDeleteErrors', label: 'Ошибки удаления файлов аккаунтов', tone: 'red', icon: 'file-remove-outline', negative: true,
+            description: 'Операции категории account.file.delete.error из административного и внешнего API: сбои удаления основного архива ' +
+                'и отказы явного удаления, включая 404. Несколько ошибок файлов одного запроса в этой категории считаются одной операцией. ' +
+                'Отсутствующий архив при автоматической очистке и профильные действия не учитываются. ' +
+                'Один запрос может попасть в несколько категорий ошибок; их сумма не равна числу уникальных неуспешных запросов.' },
+        { key: 'accountFileUploadErrors', label: 'Ошибки загрузки аккаунтов', tone: 'red', icon: 'file-upload-outline', negative: true,
+            description: 'Операции категории account.file.upload.error из административного и внешнего API: ошибки проверки, чтения, записи ' +
+                'или закрытия основного архива. Несколько ошибок одного запроса в этой категории считаются одной операцией; профиль не учитывается. ' +
+                'Один запрос может попасть в несколько категорий ошибок; их сумма не равна числу уникальных неуспешных запросов.' },
+        { key: 'opened', label: 'Открыто сессий', tone: 'blue', icon: 'play-circle-outline',
+            description: 'Успешные открытия рабочих сессий за выбранный период.' },
+        { key: 'closed', label: 'Завершено сессий (включая баны)', tone: 'teal', icon: 'check-circle-outline',
+            description: 'Серверный показатель closed: записанные завершения FINISHED и баны BANNED за период. ' +
+                'Автоматические завершения уже включены и повторно не прибавляются. Считаются события, а не уникальные сессии.' },
+        { key: 'sessionErrors', label: 'Сбои операций с сессиями', tone: 'red', icon: 'alert-outline', negative: true,
+            description: 'Операции start, finish и ban с зарегистрированным session.error.' },
         { key: 'sent', label: 'Подтверждено отправок', tone: 'blue', icon: 'send',
             description: 'Первые сохранённые подтверждения SENT, DELIVERED или UNDELIVERED в истории выбранного пользователя журнала; для всех пользователей — во всей истории.' },
         { key: 'delivered', label: 'Подтверждено доставок', tone: 'teal', icon: 'check-all',
-            description: 'Первые сохранённые подтверждения доставки в истории выбранного пользователя журнала; для всех пользователей — во всей истории. Учитываются подтверждения, попавшие в выбранный период.' },
-        { key: 'accountErrors', label: 'Сбои загрузки аккаунтов', tone: 'red', icon: 'alert-circle-outline', negative: true,
-            description: 'Операции с account.error. Сбой после сохранения аккаунта может сопровождаться HTTP 201.' },
-        { key: 'sessionErrors', label: 'Сбои операций сессий', tone: 'red', icon: 'alert-outline', negative: true,
-            description: 'Операции start, finish и ban с зарегистрированным session.error.' }
+            description: 'Первые сохранённые подтверждения доставки в истории выбранного пользователя журнала; для всех пользователей — во всей истории. Учитываются подтверждения, попавшие в выбранный период.' }
     ];
     var selectedUserId = null;
     var snapshot;
@@ -54,10 +81,13 @@
     var draftDates = {};
     var demoScript;
     var coverageGroups = {
-        lifecycle: { label: 'Сессии и баны', keys: ['opened', 'finished', 'sessionBans', 'accountBans', 'autoFinished'] },
+        lifecycle: { label: 'Сессии и баны', keys: ['opened', 'finished', 'sessionBans', 'accountBans', 'autoFinished', 'closed'] },
         messageEvents: { label: 'События сообщений', keys: ['sent', 'delivered', 'undelivered', 'failed'] },
-        accountErrors: { label: 'Сбои загрузки аккаунтов', keys: ['accountErrors'] },
-        sessionErrors: { label: 'Сбои операций сессий', keys: ['sessionErrors'] }
+        accountErrors: { label: 'Ошибки операций с аккаунтами в БД', keys: ['accountErrors'] },
+        sessionErrors: { label: 'Сбои операций с сессиями', keys: ['sessionErrors'] },
+        accountEvents: { label: 'Загрузка и сохранение аккаунтов', keys: ['accountsUploaded', 'accountsCreated', 'accountsUpdated'] },
+        accountFileUploadErrors: { label: 'Ошибки загрузки аккаунтов', keys: ['accountFileUploadErrors'] },
+        accountFileDeleteErrors: { label: 'Ошибки удаления файлов аккаунтов', keys: ['accountFileDeleteErrors'] }
     };
 
     function badgeColors() {
@@ -214,10 +244,17 @@
 
     function renderCharts() {
         var trend = snapshot ? snapshot.trend : [];
-        updateChart('#dashboard-sessions-chart', trend, chartSeries(['opened', 'finished', 'sessionBans']));
+        var sessions = chartSeries(['opened', 'finished', 'sessionBans', 'sessionErrors']);
+        sessions[2].color = '#333333';
+        sessions[3].color = '#C62828';
+        updateChart('#dashboard-sessions-chart', trend, sessions);
         updateChart('#dashboard-messages-chart', trend, chartSeries(['sent', 'delivered', 'undelivered', 'failed']));
-        updateChart('#dashboard-account-errors-chart', trend, chartSeries(['accountErrors']));
-        updateChart('#dashboard-session-errors-chart', trend, chartSeries(['sessionErrors']));
+        var accounts = chartSeries(['accountsUploaded', 'accountsCreated', 'accountsUpdated',
+            'accountErrors', 'accountFileUploadErrors', 'accountFileDeleteErrors']);
+        accounts[3].color = '#8B0000';
+        accounts[4].color = '#C62828';
+        accounts[5].color = '#EF5350';
+        updateChart('#dashboard-accounts-chart', trend, accounts);
     }
 
     function openDetails(title, content) {
@@ -348,7 +385,6 @@
         ['available', 'active', 'paused', 'banned'].forEach(function (key) {
             $('#dashboard-live-' + key).text('—');
         });
-        $('#dashboard-live-scope').text('Данные не загружены');
         $('#dashboard-live-updated').empty();
         $('#dashboard-live').attr({ 'aria-busy': 'false', 'data-state': 'error' });
     }
@@ -434,7 +470,6 @@
             ['available', 'active', 'paused', 'banned'].forEach(function (key) {
                 $('#dashboard-live-' + key).text(number(data[key]));
             });
-            $('#dashboard-live-scope').text(data.scopeLabel + ' · по текущему владельцу аккаунта · независимо от периода');
             $('#dashboard-live-updated').text('Обновлено ' + displayDate(data.asOf) + ' UTC');
             $('#dashboard-live').attr('data-state', 'ready');
         }).catch(function (error) {

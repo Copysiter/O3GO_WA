@@ -8,7 +8,8 @@
     var FIELDS = [
         'opened', 'finished', 'sessionBans', 'accountBans', 'sent',
         'delivered', 'undelivered', 'failed', 'accountErrors', 'sessionErrors',
-        'autoFinished'
+        'autoFinished', 'accountsUploaded', 'accountsCreated', 'accountsUpdated',
+        'accountFileDeleteErrors', 'accountFileUploadErrors', 'closed'
     ];
 
     function createUsers(currentUser) {
@@ -103,6 +104,16 @@
         counts.sessionBans = countEvents(bans, from, to);
         counts.accountBans = countEvents(bans, from, to, 2);
         counts.autoFinished = countEvents(finished, from, to, 3);
+        counts.closed = counts.finished + counts.sessionBans;
+
+        // Independent archive and account facts, not stages of a conversion funnel.
+        // A separate seed keeps the established message and lifecycle histories intact.
+        var accountSeed = hash(JSON.stringify([userId, date, hour, 'account-events']));
+        counts.accountsUploaded = countEvents(1 + accountSeed % 9, from, to);
+        counts.accountsCreated = countEvents(1 + (accountSeed >>> 8) % 11, from, to);
+        counts.accountsUpdated = countEvents(1 + (accountSeed >>> 16) % 13, from, to);
+        counts.accountFileUploadErrors = countEvents((accountSeed >>> 4) % 3, from, to);
+        counts.accountFileDeleteErrors = countEvents((accountSeed >>> 24) % 3, from, to);
 
         var sentOnly = countEvents(6 + (seed >>> 8) % 17, from, to);
         counts.delivered = countEvents(50 + (seed >>> 12) % 91, from, to);
@@ -209,7 +220,8 @@
             }
         }
         var coverage = {};
-        ['lifecycle', 'messageEvents', 'accountErrors', 'sessionErrors'].forEach(function (group) {
+        ['lifecycle', 'messageEvents', 'accountErrors', 'sessionErrors', 'accountEvents',
+            'accountFileUploadErrors', 'accountFileDeleteErrors'].forEach(function (group) {
             coverage[group] = { from: null, currentState: 'recorded', previousState: 'recorded',
                 currentReason: null, previousReason: null };
         });

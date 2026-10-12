@@ -11,6 +11,17 @@
     flex: 0 0 46px;
 }
 
+/* Reserve the 51px mini drawer before Kendo reparents the page content. */
+.dashboard-page #drawer:not(.k-drawer) {
+    box-sizing: border-box;
+    height: 100%;
+    padding-left: 51px;
+}
+
+.dashboard-page #drawer:not(.k-drawer) > #dashboard-content {
+    height: 100%;
+}
+
 .dashboard-page .k-drawer-content {
     min-width: 0;
     overflow: hidden;
@@ -325,6 +336,10 @@
     background: #fff;
 }
 
+.dashboard-panel-wide {
+    grid-column: 1 / -1;
+}
+
 .dashboard-panel-heading {
     align-items: flex-start;
     padding: 20px 20px 10px;
@@ -363,7 +378,7 @@
     padding: 20px;
     border: 1px solid #c8cdd3;
     border-radius: 9px;
-    background: #e4e4e4;
+    background: rgba(0, 0, 0, 0.075);
 }
 
 .dashboard-live-metric {

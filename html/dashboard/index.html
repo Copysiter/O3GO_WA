@@ -23,7 +23,7 @@
                 <div id="dashboard-content">
                     <main class="dashboard-shell" aria-label="Обзор сервиса">
                         <section id="dashboard-live" class="dashboard-live" aria-label="Текущее состояние аккаунтов" aria-busy="true">
-                            <div class="dashboard-live-heading"><span class="dashboard-live-dot"></span><strong>Сейчас</strong><span id="dashboard-live-scope">По текущему владельцу аккаунта, независимо от периода</span><span id="dashboard-live-updated" role="status" aria-live="polite">Загрузка…</span></div>
+                            <div class="dashboard-live-heading"><span class="dashboard-live-dot"></span><strong>Сейчас</strong><span id="dashboard-live-updated" role="status" aria-live="polite">Загрузка…</span></div>
                             <div class="dashboard-live-metric"><strong id="dashboard-live-available">—</strong><span>Готовы к выдаче</span></div>
                             <div class="dashboard-live-metric"><strong id="dashboard-live-active">—</strong><span>Активные аккаунты</span></div>
                             <div class="dashboard-live-metric"><strong id="dashboard-live-paused">—</strong><span>В cooldown</span></div>
@@ -60,7 +60,7 @@
                                 <button id="dashboard-apply" type="button">Применить</button>
                             </div>
                             <p id="dashboard-range-help" class="dashboard-filter-help">Без окончания — до текущего момента. Максимальный период — один календарный месяц. Окончание не включается в период.</p>
-                            <p id="dashboard-scope-help" class="dashboard-filter-help">История — по пользователю, записанному в журнале. «Сейчас» — по текущему владельцу аккаунта. Эти области могут различаться.</p>
+                            <p id="dashboard-scope-help" class="dashboard-filter-help">История — по пользователю, записанному в журнале. «Сейчас» — по текущему владельцу аккаунта. Эти области могут различаться. Анонимные административные файловые события (log.user_id = NULL) видны только администратору при выборе «Все пользователи»; в срез выбранного пользователя они не входят.</p>
                         </section>
                         <div id="dashboard-error" class="dashboard-error" role="alert" hidden></div>
                         <button id="dashboard-login" type="button" hidden>Войти заново</button>
@@ -75,7 +75,7 @@
                                 </div>
                                 <span id="dashboard-comparison" class="dashboard-period-note"></span>
                             </div>
-                            <p id="dashboard-history-note" class="dashboard-panel-footnote">Статистика рассчитана по сохранённым событиям журнала и записанному в них пользователю (log.user_id). 0 — нет записанных событий; это не гарантирует отсутствия активности в прошлом. Первые подтверждения сообщений определяются в истории выбранного пользователя, а для всех пользователей — во всей истории.</p>
+                            <p id="dashboard-history-note" class="dashboard-panel-footnote">Статистика рассчитана по сохранённым событиям журнала и записанному в них пользователю (log.user_id). 0 — нет записанных событий; это не гарантирует отсутствия активности в прошлом или полноты исторического учёта. Старые периоды не дополняются файловыми событиями задним числом. Первые подтверждения сообщений определяются в истории выбранного пользователя, а для всех пользователей — во всей истории.</p>
                             <div id="dashboard-coverage" class="dashboard-notice" role="status" hidden></div>
                             <div id="dashboard-metrics" class="dashboard-metrics"></div>
                         </section>
@@ -88,11 +88,12 @@
                             <div class="dashboard-panels">
                                 <article class="dashboard-panel">
                                     <div class="dashboard-panel-heading">
-                                        <div><h3>Жизненный цикл сессий</h3><p>Открытия, завершения и баны за период</p></div>
+                                        <div><h3>Жизненный цикл сессий</h3><p>Открытия, завершения, баны и сбои за период</p></div>
                                         <span class="dashboard-panel-icon"><i class="mdi mdi-poll" aria-hidden="true"></i></span>
                                     </div>
-                                    <div id="dashboard-sessions-chart" class="dashboard-chart" role="img" aria-label="Динамика открытий, завершений и банов сессий"></div>
+                                    <div id="dashboard-sessions-chart" class="dashboard-chart" role="img" aria-label="Динамика открытий, завершений, банов и сбоев операций сессий"></div>
                                     <p class="dashboard-panel-footnote" id="dashboard-session-note"></p>
+                                    <p class="dashboard-panel-footnote">Сбои старта, завершения и бана сессии, зарегистрированные сервисом как session.error.</p>
                                 </article>
                                 <article class="dashboard-panel">
                                     <div class="dashboard-panel-heading">
@@ -102,19 +103,14 @@
                                     <div id="dashboard-messages-chart" class="dashboard-chart" role="img" aria-label="Динамика отправок, доставок, недоставок и ошибок сообщений"></div>
                                     <p class="dashboard-panel-footnote">Подтверждения и ошибки в интервале. Нажмите на столбец, чтобы увидеть значения.</p>
                                 </article>
-                                <article class="dashboard-panel">
+                                <article class="dashboard-panel dashboard-panel-wide">
                                     <div class="dashboard-panel-heading">
-                                        <div><h3>Сбои загрузки аккаунтов</h3><p>account.error</p></div>
+                                        <div><h3>Операции с аккаунтами</h3><p>Загрузки архивов, создания и обновления записей БД, общие и файловые ошибки</p></div>
+                                        <span class="dashboard-panel-icon"><i class="mdi mdi-upload" aria-hidden="true"></i></span>
                                     </div>
-                                    <div id="dashboard-account-errors-chart" class="dashboard-chart" role="img" aria-label="Динамика account.error"></div>
-                                    <p class="dashboard-panel-footnote">Сбой загрузки может быть зарегистрирован после успешного сохранения аккаунта.</p>
-                                </article>
-                                <article class="dashboard-panel">
-                                    <div class="dashboard-panel-heading">
-                                        <div><h3>Сбои операций сессий</h3><p>session.error</p></div>
-                                    </div>
-                                    <div id="dashboard-session-errors-chart" class="dashboard-chart" role="img" aria-label="Динамика session.error"></div>
-                                    <p class="dashboard-panel-footnote">Сбои старта, завершения и бана сессии, зарегистрированные сервисом.</p>
+                                    <div id="dashboard-accounts-chart" class="dashboard-chart" role="img" aria-label="Динамика загрузок, созданий и обновлений аккаунтов, общих ошибок и ошибок загрузки и удаления архивов"></div>
+                                    <p class="dashboard-panel-footnote">Независимые события, не этапы воронки. Повторные загрузки учитываются; профиль не считается загрузкой. Создание и обновление в БД не подтверждают загрузку файла.</p>
+                                    <p class="dashboard-panel-footnote">Каждая серия ошибок считает операции своей категории из api/ext_api. Один запрос может попасть в несколько категорий: их сумма не равна числу уникальных неуспешных запросов. Старые файловые и профильные account.error остаются в общей группе.</p>
                                 </article>
                             </div>
                         </section>

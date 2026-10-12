@@ -11,8 +11,8 @@
 
 Безопасность
 ------------
-Все эндпоинты требуют авторизованного активного пользователя
-(`deps.get_current_active_user`).
+Операции с записями требуют авторизованного активного пользователя
+(`deps.get_current_active_user`). Standalone-файлы доступны без JWT.
 Поиск отсутствующих архивов доступен только superuser.
 
 Зависимости
@@ -46,7 +46,7 @@
 import asyncio
 import uuid, shutil  # noqa
 
-from typing import Any, List, Dict, Sequence
+from typing import Any, List, Dict, Sequence, cast
 from pathlib import Path
 from datetime import datetime, timedelta, timezone
 
@@ -66,7 +66,7 @@ import app.deps as deps
 import app.crud as crud
 import app.models as models
 import app.schemas as schemas
-from app.services.log import log_service
+from app.services.log import LogOperation, log_service
 from app.utils.account_files import account_file_exists as _account_file_exists
 
 
@@ -108,73 +108,99 @@ def _delivery_summary(
     )
 
 
-def delete_account_files(account: models.Account) -> Dict[str, Any]:
-    """
-    Удаляет файлы, связанные с аккаунтом (архив и профиль).
-
-    Args:
-        account: Объект аккаунта с информацией о файлах.
-
-    Returns:
-        Словарь с информацией об удалённых файлах и возникших ошибках.
-        Формат: {
-            "deleted_files": [...],
-            "errors": [...]
-        }
-    """
-    result = {
-        "deleted_files": [],
-        "errors": []
+def _account_target(
+    account: models.Account | schemas.Account, *,
+    requested_id: int | None = None, request_index: int | None = None,
+) -> dict[str, Any]:
+    """Copy allowed scalars before deletion/rollback expires ORM objects."""
+    target: dict[str, Any] = {
+        "account_id": account.id,
+        "uuid": log_service.safe_value(account.uuid),
+        "owner_user_id": account.user_id,
+        "status": account.status,
     }
+    if requested_id is not None:
+        target["requested_account_id"] = requested_id
+    if request_index is not None:
+        target["request_index"] = request_index
+    return target
 
-    # Удаление основного архива аккаунта (file_name)
-    if account.file_name:
-        file_path = UPLOAD_DIR / account.file_name
+
+def _unlink_account_file(path: Path) -> bool:
+    """Keep the existing exists/unlink policy; a missing file is a skip."""
+    if not path.exists():
+        return False
+    try:
+        path.unlink()
+    except FileNotFoundError:
+        return False
+    return True
+
+
+def _write_archive(file: UploadFile, path: Path) -> None:
+    with path.open('wb') as buffer:
+        shutil.copyfileobj(file.file, buffer)
+
+
+async def delete_account_files(
+    account: schemas.Account, *, operation: LogOperation,
+    details: dict[str, Any],
+) -> Dict[str, Any]:
+    """Queue file facts without DB access or transaction release."""
+    result: Dict[str, Any] = {"deleted_files": [], "errors": []}
+    for kind, directory, filename in (
+        ("archive", UPLOAD_DIR, account.file_name),
+        ("profile", PROFILE_UPLOAD_DIR, account.profile_file_name),
+    ):
+        if not filename:
+            continue
+        details.update(
+            file_kind=kind, file_name=filename, reason="account_delete",
+        )
+        file_details = dict(details)
+        operation.stage = f"delete_{kind}"
+        operation.persist_error = kind == "archive"
+        operation.error_event = (
+            "account.file.delete.error" if kind == "archive" else None
+        )
         try:
-            if file_path.exists():
-                file_path.unlink()
-                result["deleted_files"].append(str(file_path))
-                logger.info(
-                    f"Deleted account file: {file_path}",
-                    event=E.SYSTEM.APP.SUCCESS,
-                    extra={"account_id": account.id}
-                )
-        except Exception as e:
-            error_msg = f"{type(e).__name__} - {str(e)}"
-            result["errors"].append(error_msg)
-            logger.error(
-                event=E.SYSTEM.API.ERROR,
-                extra={
-                    "error": {"type": type(e).__name__, "msg": str(e)},
-                    "file_path": str(file_path),
-                    "account_id": account.id
-                }
+            deleted = await asyncio.to_thread(
+                _unlink_account_file, directory / filename,
             )
-
-    # Удаление файла профиля (profile_file_name)
-    if account.profile_file_name:
-        profile_path = PROFILE_UPLOAD_DIR / account.profile_file_name
+        except Exception as error:
+            log_service.queue_event(
+                operation, event=operation.error_event,
+                details=file_details, error=error,
+            )
+            result["errors"].append({"type": type(error).__name__})
+            continue
+        if not deleted:
+            continue
+        result["deleted_files"].append(str(directory / filename))
+        if kind == "archive":
+            log_service.queue_event(
+                operation, event="account.file.delete", details=file_details,
+            )
+        # An error after unlink is not a failed unlink. Preserve the helper's
+        # nonfatal logger handling, but keep profile diagnostics DB-free.
+        operation.stage = f"log_{kind}_delete"
+        operation.error_event = None
         try:
-            if profile_path.exists():
-                profile_path.unlink()
-                result["deleted_files"].append(str(profile_path))
-                logger.info(
-                    f"Deleted profile file: {profile_path}",
-                    event=E.SYSTEM.APP.SUCCESS,
-                    extra={"account_id": account.id}
-                )
-        except Exception as e:
-            error_msg = f"{type(e).__name__} - {str(e)}"
-            result["errors"].append(error_msg)
-            logger.error(
-                event=E.SYSTEM.API.ERROR,
-                extra={
-                    "error": {"type": type(e).__name__, "msg": str(e)},
-                    "file_path": str(profile_path),
-                    "account_id": account.id
-                }
+            await asyncio.to_thread(
+                logger.info, f"Deleted {kind} file",
+                event=E.SYSTEM.APP.SUCCESS, extra=file_details,
             )
-
+        except Exception as error:
+            log_service.queue_event(
+                operation,
+                event="account.error" if kind == "archive" else None,
+                details=file_details, error=error,
+            )
+            result["errors"].append({"type": type(error).__name__})
+    operation.persist_error = True
+    operation.error_event = None
+    for name in ("file_kind", "file_name", "reason"):
+        details.pop(name, None)
     return result
 
 
@@ -212,7 +238,11 @@ async def read_accounts(
         - `GET /accounts?status__in=1,2&order_by=-id`
         - `GET /accounts?user_id=42&order_by=created_at&order_by=-id`
     """
+    operation = log_service.operation(
+        action="account.list", user_id=current_user.id, source="api",
+    )
     try:
+        operation.stage = "lookup"
         if not current_user.is_superuser:
             f.user_id = current_user.id
         if not getattr(f, "order_by", None):
@@ -220,8 +250,10 @@ async def read_accounts(
         account_rows = await crud.account.list_with_active_session_device(
             db, filter=f, skip=skip, limit=limit
         )
+        operation.stage = "count"
         count = await crud.account.count(db, filter=f)
 
+        operation.stage = "prepare_response"
         now = datetime.now(timezone.utc)
         data = []
         for item, device in account_rows:
@@ -235,13 +267,9 @@ async def read_accounts(
             data.append(item)
 
         return {'data': data, 'total': count}
-    except Exception as e:
-        logger.exception(
-            event=E.SYSTEM.API.ERROR, extra={
-                "error": {"type": type(e).__name__, "msg": str(e)}
-            }
-        )
-        raise e
+    except (Exception, asyncio.CancelledError) as error:
+        await log_service.report_error(db, error, operation=operation)
+        raise
 
 
 @router.get(
@@ -268,17 +296,20 @@ async def read_accounts_with_missing_files(
 
     Пример: GET /api/v1/accounts/missing-files?skip=0&limit=100
     """
-    if not current_user.is_superuser:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="The user doesn't have enough privileges"
-        )
-
+    operation = log_service.operation(
+        action="account.missing_files", user_id=current_user.id, source="api",
+    )
     try:
+        if not current_user.is_superuser:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="The user doesn't have enough privileges"
+            )
         total = 0
         page_ids: list[int] = []
         before_id = None
         while True:
+            operation.stage = "lookup"
             archive_files = await crud.account.list_archive_files(
                 db, before_id=before_id, limit=_ACCOUNT_FILE_SCAN_BATCH_SIZE
             )
@@ -286,23 +317,12 @@ async def read_accounts_with_missing_files(
                 break
 
             try:
+                operation.stage = "check_archive"
                 missing_ids = await asyncio.to_thread(
                     _missing_account_file_ids, UPLOAD_DIR, archive_files
                 )
             except (OSError, RuntimeError) as exc:
                 # Path.resolve() raises RuntimeError for symlink loops in 3.11.
-                logger.exception(
-                    "Failed to check account archive files",
-                    event=E.SYSTEM.API.ERROR,
-                    extra={
-                        "user_id": current_user.id,
-                        "upload_dir": str(UPLOAD_DIR),
-                        "file_path": getattr(exc, "filename", None),
-                        "error": {
-                            "type": type(exc).__name__, "msg": str(exc)
-                        }
-                    }
-                )
                 raise HTTPException(
                     status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                     detail="Account archive storage could not be checked"
@@ -318,6 +338,7 @@ async def read_accounts_with_missing_files(
 
         data = []
         if page_ids:
+            operation.stage = "lookup_page"
             account_rows = await crud.account.list_with_active_session_device(
                 db,
                 filter=schemas.AccountFilter(
@@ -325,23 +346,15 @@ async def read_accounts_with_missing_files(
                 ),
                 limit=len(page_ids)
             )
+            operation.stage = "prepare_response"
             for item, device in account_rows:
                 account = schemas.Account.model_validate(item)
                 account.device = device
                 data.append(account)
 
         return schemas.AccountList(data=data, total=total)
-    except HTTPException:
-        raise
-    except Exception as exc:
-        logger.exception(
-            "Failed to find accounts with missing archive files",
-            event=E.SYSTEM.API.ERROR,
-            extra={
-                "user_id": current_user.id,
-                "error": {"type": type(exc).__name__, "msg": str(exc)}
-            }
-        )
+    except (Exception, asyncio.CancelledError) as error:
+        await log_service.report_error(db, error, operation=operation)
         raise
 
 
@@ -355,10 +368,9 @@ async def create_account(
     current_user: models.User = Depends(deps.get_current_active_user),
 ) -> Any:
     """
-    Создаёт новый аккаунт.
+    Создаёт аккаунты по списку имён ранее загруженных архивов.
 
-    Перед созданием выполняется проверка на уникальность по полю `number`.
-    При обнаружении дубликата возвращается HTTP 400.
+    Записи и события account.create фиксируются одной транзакцией.
 
     Args:
         db: Асинхронная сессия базы данных.
@@ -366,8 +378,13 @@ async def create_account(
         current_user: Текущий активный пользователь.
 
     Returns:
-        Созданный объект `schemas.Account` (HTTP 201).
+        Количество созданных аккаунтов (HTTP 201).
     """
+    operation = log_service.operation(
+        action="account.create", user_id=current_user.id, source="api",
+    )
+    request_details: dict[str, Any] = {"file_names": list(obj_in.files)}
+    details = request_details
     try:
         base_data = {
             **obj_in.model_dump(
@@ -375,40 +392,46 @@ async def create_account(
                     "files", "uuid", "user_id", "file_name", "session_count"
                 }
             ),
-            "user_id": current_user.id,
+            "user_id": operation.user_id,
         }
-        obj_list = [
-            schemas.AccountCreate(
+        obj_list = []
+        for index, file_name in enumerate(obj_in.files):
+            details = {
+                "target": {"request_index": index}, "file_name": file_name,
+            }
+            obj_list.append(schemas.AccountCreate(
                 **base_data, uuid=str(uuid.uuid4()), file_name=file_name
-            )
-            for file_name in obj_in.files
-        ]
+            ))
+        details = request_details
+        operation.stage = "db_write"
         accounts = await crud.account.insert(
             db=db, obj_list=obj_list, returning=True, commit=False
         )
-        await log_service.records(
-            db,
-            items=[
-                schemas.LogCreate(
-                    event="account.create",
-                    source="api",
-                    account_id=account.id,
-                    user_id=current_user.id,
-                    status=account.status
-                )
-                for account in accounts
-            ],
-            commit=False
-        )
+        operation.stage = "audit_success"
+        items = []
+        for index, account in enumerate(accounts):
+            details = {"target": {"request_index": index}}
+            details["target"].update(_account_target(account))
+            items.append(schemas.LogCreate(
+                event="account.create", source="api", account_id=account.id,
+                user_id=operation.user_id, status=account.status,
+                context=log_service.operation_context(
+                    operation, details=details,
+                ),
+            ))
+        details = request_details
+        await log_service.records(db, items=items, commit=False)
+        operation.stage = "commit"
+        operation.db_outcome = "unknown"
         await db.commit()
+        operation.db_outcome = "committed"
+        operation.stage = "prepare_response"
         return {"count": len(accounts)}
-    except Exception as e:
-        logger.exception(
-            event=E.SYSTEM.API.ERROR, extra={
-                "error": {"type": type(e).__name__, "msg": str(e)}
-            }
+    except (Exception, asyncio.CancelledError) as error:
+        await log_service.report_error(
+            db, error, operation=operation, details=lambda: details,
         )
-        raise e
+        raise
 
 
 @router.put('/{id}', response_model=schemas.Account)
@@ -433,37 +456,51 @@ async def update_account(
     Returns:
         Обновлённый объект `schemas.Account`.
     """
+    operation = log_service.operation(
+        action="account.update", user_id=current_user.id, source="api",
+    )
+    details = {"target": {"requested_account_id": id}}
     try:
+        operation.stage = "lookup"
         db_obj = await crud.account.get(db=db, id=id)
         if not db_obj:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail='The account with this ID does not exist'
             )
+        details = {"target": _account_target(db_obj, requested_id=id)}
+        operation.account_id = db_obj.id
         event = "account.status" if "status" in obj_in.model_dump(
             exclude_unset=True
         ) else "account.update"
+        operation.stage = "db_write"
         account = await crud.account.update(
             db=db, db_obj=db_obj, obj_in=obj_in, commit=False
         )
+        operation.stage = "audit_success"
         await log_service.record(
             db,
             event=event,
             source="api",
             account_id=account.id,
-            user_id=current_user.id,
+            user_id=operation.user_id,
             status=account.status,
+            context=log_service.operation_context(
+                operation,
+                details={"target": _account_target(account, requested_id=id)},
+            ),
             commit=False
         )
+        operation.stage = "commit"
+        operation.db_outcome = "unknown"
         await db.commit()
+        operation.db_outcome = "committed"
         return account
-    except Exception as e:
-        logger.exception(
-            event=E.SYSTEM.API.ERROR, extra={
-                "error": {"type": type(e).__name__, "msg": str(e)}
-            }
+    except (Exception, asyncio.CancelledError) as error:
+        await log_service.report_error(
+            db, error, operation=operation, details=lambda: details,
         )
-        raise e
+        raise
 
 
 @router.get('/{id}/summary', response_model=schemas.AccountReportSummary)
@@ -474,7 +511,12 @@ async def read_account_summary(
     current_user: models.User = Depends(deps.get_current_active_user),
 ) -> schemas.AccountReportSummary:
     """Возвращает Overview, device активной сессии и агрегаты аккаунта."""
+    operation = log_service.operation(
+        action="account.summary", user_id=current_user.id, source="api",
+    )
+    details = {"target": {"requested_account_id": id}}
     try:
+        operation.stage = "lookup"
         result = await crud.account.get_report_summary(
             db,
             account_id=id,
@@ -489,6 +531,9 @@ async def read_account_summary(
             )
 
         account, stats = result
+        details = {"target": _account_target(account, requested_id=id)}
+        operation.account_id = account.id
+        operation.stage = "prepare_response"
         now = datetime.now(timezone.utc)
         account_status = int(account.status)
         cooldown_until = None
@@ -502,17 +547,67 @@ async def read_account_summary(
             ):
                 account_status = int(AccountStatus.PAUSED)
 
-        archive_exists, profile_exists = await asyncio.gather(
-            asyncio.to_thread(
-                _account_file_exists, UPLOAD_DIR, account.file_name
-            ),
-            asyncio.to_thread(
-                _account_file_exists,
-                PROFILE_UPLOAD_DIR,
-                account.profile_file_name
-            )
-        )
+        failures: list[tuple[str, BaseException]] = []
 
+        async def check_file(
+            kind: str, directory: Path, name: str | None,
+        ) -> bool:
+            try:
+                return await asyncio.to_thread(
+                    _account_file_exists, directory, name,
+                )
+            except (Exception, asyncio.CancelledError) as error:
+                failures.append((kind, error))
+                raise
+
+        def queue_failure(kind: str, error: BaseException) -> None:
+            operation.stage = f"check_{kind}"
+            log_service.queue_event(
+                operation,
+                event="account.error" if kind == "archive" else None,
+                details=details, error=error, account_id=operation.account_id,
+            )
+
+        operation.stage = "check_files"
+        try:
+            archive_exists, profile_exists = await asyncio.gather(
+                check_file("archive", UPLOAD_DIR, account.file_name),
+                check_file(
+                    "profile", PROFILE_UPLOAD_DIR, account.profile_file_name,
+                ),
+                return_exceptions=True,
+            )
+        except asyncio.CancelledError:
+            # gather cancellation bypasses its result processing. Retain
+            # observed errors and classify the still-pending check before
+            # the outer finalizer drains facts and propagates cancellation.
+            cancelled_kinds = set()
+            for kind, error in failures:
+                if isinstance(error, asyncio.CancelledError):
+                    cancelled_kinds.add(kind)
+                else:
+                    queue_failure(kind, error)
+            operation.persist_error = (
+                not failures or "archive" in cancelled_kinds
+            )
+            operation.stage = (
+                "check_archive" if "archive" in cancelled_kinds else
+                "check_profile" if "profile" in cancelled_kinds else
+                "check_files"
+            )
+            raise
+        if failures:
+            # Retain the first exception, while identifying each concurrent
+            # failure by its task, never by an exception message/path.
+            for kind, error in failures[1:]:
+                queue_failure(kind, error)
+            kind, error = failures[0]
+            operation.stage = f"check_{kind}"
+            operation.persist_error = kind == "archive"
+            raise error
+
+        operation.persist_error = True
+        operation.stage = "prepare_response"
         return schemas.AccountReportSummary(
             account=schemas.AccountReportOverview(
                 id=account.id,
@@ -527,11 +622,11 @@ async def read_account_summary(
                 ),
                 archive=schemas.AccountReportFile(
                     name=account.file_name,
-                    exists=archive_exists
+                    exists=cast(bool, archive_exists)
                 ),
                 profile=schemas.AccountReportFile(
                     name=account.profile_file_name,
-                    exists=profile_exists
+                    exists=cast(bool, profile_exists)
                 )
             ),
             session_count=int(stats["session_count"] or 0),
@@ -548,15 +643,9 @@ async def read_account_summary(
                 int(stats["delivery_all_terminal"] or 0)
             )
         )
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.exception(
-            event=E.SYSTEM.API.ERROR,
-            extra={
-                "error": {"type": type(e).__name__, "msg": str(e)},
-                "account_id": id
-            }
+    except (Exception, asyncio.CancelledError) as error:
+        await log_service.report_error(
+            db, error, operation=operation, details=lambda: details,
         )
         raise
 
@@ -582,7 +671,12 @@ async def read_account(
     Raises:
         HTTPException(404): Если аккаунт не найден.
     """
+    operation = log_service.operation(
+        action="account.read", user_id=_current_user.id, source="api",
+    )
+    details = {"target": {"requested_account_id": id}}
     try:
+        operation.stage = "lookup"
         account = await crud.account.get(db=db, id=id)
         if not account:
             raise HTTPException(
@@ -590,13 +684,11 @@ async def read_account(
                 detail='The account with this ID does not exist'
             )
         return account
-    except Exception as e:
-        logger.exception(
-            event=E.SYSTEM.API.ERROR, extra={
-                "error": {"type": type(e).__name__, "msg": str(e)}
-            }
+    except (Exception, asyncio.CancelledError) as error:
+        await log_service.report_error(
+            db, error, operation=operation, details=lambda: details,
         )
-        raise e
+        raise
 
 
 @router.delete('/{id}', response_model=schemas.Account)
@@ -624,7 +716,12 @@ async def delete_account(
     Raises:
         HTTPException(404): Если аккаунт не найден.
     """
+    operation = log_service.operation(
+        action="account.delete", user_id=_current_user.id, source="api",
+    )
+    details = {"target": {"requested_account_id": id}}
     try:
+        operation.stage = "lookup"
         account = await crud.account.get(db=db, id=id)
         if not account:
             raise HTTPException(
@@ -632,12 +729,18 @@ async def delete_account(
                 detail='The account with this ID does not exist'
             )
 
-        # Удаление связанных файлов перед удалением из БД
-        file_deletion_result = delete_account_files(account)
+        details = {"target": _account_target(account, requested_id=id)}
+        operation.stage = "prepare_response"
+        response = schemas.Account.model_validate(account)
+        # Files precede DELETE; independent writers wait for the boundary.
+        file_deletion_result = await delete_account_files(
+            response, operation=operation, details=details,
+        )
 
-        # Логируем результат удаления файлов
+        operation.stage = "log_files"
         if file_deletion_result["deleted_files"]:
-            logger.info(
+            await asyncio.to_thread(
+                logger.info,
                 "Account files deleted successfully",
                 event=E.SYSTEM.APP.SUCCESS,
                 extra={
@@ -647,7 +750,8 @@ async def delete_account(
             )
 
         if file_deletion_result["errors"]:
-            logger.warning(
+            await asyncio.to_thread(
+                logger.warning,
                 "Some files could not be deleted",
                 event=E.SYSTEM.APP.FAILURE,
                 extra={
@@ -656,20 +760,32 @@ async def delete_account(
                 }
             )
 
-        # Удаление записи из базы данных
-        account = await crud.account.delete(db=db, id=id)
-        return account
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.exception(
-            event=E.SYSTEM.API.ERROR, extra={
-                "error": {"type": type(e).__name__, "msg": str(e)},
-                "account_id": id
-            }
+        operation.stage = "db_delete"
+        deleted_id = await crud.account.delete_returning_id(db, account_id=id)
+        if deleted_id is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail='The account with this ID does not exist',
+            )
+        operation.stage = "audit_success"
+        await log_service.record(
+            db, event="account.delete", source="api",
+            user_id=operation.user_id,
+            account_id=None, session_id=None, message_id=None,
+            context=log_service.operation_context(operation, details=details),
+            commit=False,
         )
-        raise e
+        operation.stage = "commit"
+        operation.db_outcome = "unknown"
+        await db.commit()
+        operation.db_outcome = "committed"
+    except (Exception, asyncio.CancelledError) as error:
+        await log_service.report_error(
+            db, error, operation=operation, details=lambda: details,
+        )
+        raise
+    await log_service.flush_events(db, operation=operation)
+    return response
 
 
 @router.post('/delete', response_model=List[schemas.Account])
@@ -698,85 +814,104 @@ async def delete_accounts(
     Returns:
         Список удалённых объектов `schemas.Account`.
     """
+    operation = log_service.operation(
+        action="account.delete_many", user_id=_.id, source="api",
+    )
+    request_details: dict[str, Any] = {"requested_account_ids": list(data.ids)}
+    details = request_details
     try:
         accounts = []
-        deletion_stats = {
+        deletion_stats: dict[str, Any] = {
             "accounts_deleted": 0,
             "files_deleted": 0,
             "errors": []
         }
 
-        for id in data.ids:
-            try:
-                # Получаем аккаунт для доступа к информации о файлах
-                account = await crud.account.get(db=db, id=id)
-
-                if not account:
-                    logger.warning(
-                        "Account not found, skipping",
-                        event=E.SYSTEM.APP.FAILURE, extra={"account_id": id}
-                    )
-                    continue
-
-                # Удаление связанных файлов
-                file_deletion_result = delete_account_files(account)
-
-                if file_deletion_result["deleted_files"]:
-                    deletion_stats["files_deleted"] += \
-                        len(file_deletion_result["deleted_files"])
-
-                if file_deletion_result["errors"]:
-                    deletion_stats["errors"].extend(
-                        file_deletion_result["errors"]
-                    )
-
-                # Удаление записи из базы данных без коммита
-                deleted_account = await crud.account.delete(
-                    db=db, id=id, commit=False
+        seen: set[int] = set()
+        for index, id in enumerate(data.ids):
+            if id in seen:
+                continue
+            seen.add(id)
+            details = {"target": {
+                "requested_account_id": id, "request_index": index,
+            }}
+            operation.stage = "lookup"
+            account = await crud.account.get(db=db, id=id)
+            if not account:
+                await asyncio.to_thread(
+                    logger.warning, "Account not found, skipping",
+                    event=E.SYSTEM.APP.FAILURE, extra={"account_id": id},
                 )
-                accounts.append(deleted_account)
-                deletion_stats["accounts_deleted"] += 1
+                continue
 
-            except Exception as e:
-                error_msg = f"{id}: {type(e).__name__} - {str(e)}"
-                deletion_stats["errors"].append(error_msg)
-                logger.exception(
-                    "Failed to delete account",
-                    event=E.SYSTEM.API.ERROR,
-                    extra={
-                        "error": {"type": type(e).__name__, "msg": str(e)},
-                        "account_id": id
-                    }
-                )
-                # Откатываем транзакцию при ошибке
-                await db.rollback()
-                raise
+            details = {"target": _account_target(
+                account, requested_id=id, request_index=index,
+            )}
+            operation.stage = "prepare_response"
+            response = schemas.Account.model_validate(account)
+            file_deletion_result = await delete_account_files(
+                response, operation=operation, details=details,
+            )
+            deletion_stats["files_deleted"] += len(
+                file_deletion_result["deleted_files"],
+            )
+            deletion_stats["errors"].extend(file_deletion_result["errors"])
 
-        # Коммитим все изменения разом
+            operation.stage = "db_delete"
+            deleted_id = await crud.account.delete_returning_id(
+                db, account_id=id,
+            )
+            if deleted_id is None:
+                continue
+            operation.stage = "audit_success"
+            await log_service.record(
+                db, event="account.delete", source="api",
+                user_id=operation.user_id,
+                account_id=None, session_id=None, message_id=None,
+                context=log_service.operation_context(
+                    operation, details=details,
+                ),
+                commit=False,
+            )
+            accounts.append(response)
+            deletion_stats["accounts_deleted"] += 1
+
+        # Commit/log failures describe the whole request, not the last item.
+        details = request_details
+        operation.stage = "commit"
+        operation.db_outcome = "unknown"
         await db.commit()
+        operation.db_outcome = "committed"
 
-        # Логирование итоговой статистики
-        logger.info(
+        operation.stage = "success_log"
+        await asyncio.to_thread(
+            logger.info,
             "Batch account deletion completed",
             event=E.SYSTEM.APP.SUCCESS,
             extra={"stats": deletion_stats}
         )
 
-        return accounts
-
-    except Exception as e:
-        logger.exception(
-            "Critical error during batch deletion",
-            event=E.SYSTEM.API.ERROR,
-            extra={
-                "error": {"type": type(e).__name__, "msg": str(e)}
-            }
+    except (Exception, asyncio.CancelledError) as error:
+        await log_service.report_error(
+            db, error, operation=operation, details=lambda: details,
         )
-        raise e
+        raise
+    await log_service.flush_events(db, operation=operation)
+    return accounts
 
 
 @router.post('/upload')
-async def upload_archive(file: UploadFile = File(...)):
+async def upload_archive(
+    file: UploadFile = File(...), db: AsyncSession = Depends(deps.get_db),
+) -> JSONResponse:
+    """Сохранить архив без обязательного JWT и записать файловый аудит."""
+    operation = log_service.operation(
+        action="account.file.upload", user_id=None, source="api",
+    )
+    operation.error_event = "account.file.upload.error"
+    details = {
+        "file_kind": "archive", "file_name": file.filename, "reason": "upload",
+    }
     try:
         if not file.filename.endswith('.tar.gz'):
             raise HTTPException(
@@ -784,42 +919,70 @@ async def upload_archive(file: UploadFile = File(...)):
             )
         file_path = UPLOAD_DIR / file.filename
 
-        with file_path.open('wb') as buffer:
-            shutil.copyfileobj(file.file, buffer)
-
-        return JSONResponse(content={'file_name': str(file.filename)})
-    except Exception as e:
-        logger.exception(
-            event=E.SYSTEM.API.ERROR, extra={
-                "error": {"type": type(e).__name__, "msg": str(e)}
-            }
+        operation.stage = "write_archive"
+        await asyncio.to_thread(_write_archive, file, file_path)
+        log_service.queue_event(
+            operation, event="account.file.upload", details=details,
         )
-        raise e
+        operation.error_event = None
+        operation.stage = "prepare_response"
+        response = JSONResponse(content={'file_name': str(file.filename)})
+    except (Exception, asyncio.CancelledError) as error:
+        await log_service.report_error(
+            db, error, operation=operation, details=lambda: details,
+        )
+        raise
+    await log_service.flush_events(db, operation=operation)
+    return response
 
 
 @router.post('/remove')
-async def remove_archive(request: Request):
+async def remove_archive(
+    request: Request, db: AsyncSession = Depends(deps.get_db),
+) -> JSONResponse:
+    """Удалить архив с независимым аудитом; отсутствующий файл даёт 404."""
+    operation = log_service.operation(
+        action="account.file.delete", user_id=None, source="api",
+    )
+    operation.error_event = "account.file.delete.error"
+    details: dict[str, Any] = {
+        "file_kind": "archive", "file_name": None, "reason": "remove",
+    }
     try:
         form = await request.form()
         filename = form.get('file_name')
+        details["file_name"] = log_service.safe_value(filename)
         if not filename or not filename.endswith(".tar.gz"):
             raise HTTPException(status_code=400, detail="Invalid file name")
 
         file_path = UPLOAD_DIR / filename
 
-        if not file_path.exists():
+        operation.stage = "check_archive"
+        if not await asyncio.to_thread(file_path.exists):
             raise HTTPException(status_code=404, detail="File not found")
 
-        file_path.unlink()
-
-        return JSONResponse(content={"message": "File deleted successfully"})
-    except Exception as e:
-        logger.exception(
-            event=E.SYSTEM.API.ERROR, extra={
-                "error": {"type": type(e).__name__, "msg": str(e)}
-            }
+        operation.stage = "delete_archive"
+        try:
+            await asyncio.to_thread(file_path.unlink)
+        except FileNotFoundError as error:
+            raise HTTPException(
+                status_code=404, detail="File not found",
+            ) from error
+        log_service.queue_event(
+            operation, event="account.file.delete", details=details,
         )
-        raise e
+        operation.error_event = None
+        operation.stage = "prepare_response"
+        response = JSONResponse(
+            content={"message": "File deleted successfully"},
+        )
+    except (Exception, asyncio.CancelledError) as error:
+        await log_service.report_error(
+            db, error, operation=operation, details=lambda: details,
+        )
+        raise
+    await log_service.flush_events(db, operation=operation)
+    return response
 
 
 @router.post('/profile/upload')

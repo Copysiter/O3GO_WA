@@ -1,0 +1,1115 @@
+<!doctype html>
+<html lang="ru">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Отчет по аккаунту 393332866324</title>
+    <style>
+        :root {
+            --chrome-1: #6f7479;
+            --chrome-2: #7f8489;
+            --chrome-3: #90959a;
+            --work: #b4b7ba;
+            --panel: #c4c7ca;
+            --panel-soft: #ced1d3;
+            --table: #d2d4d6;
+            --table-alt: #c9cccf;
+            --table-head: #b9bdc1;
+            --line: rgba(72, 79, 86, 0.34);
+            --line-soft: rgba(72, 79, 86, 0.18);
+            --text: #3b4249;
+            --text-strong: #2f363d;
+            --text-soft: #596168;
+            --text-faint: #747b82;
+            --sidebar-text: #d9dcde;
+            --sidebar-soft: #b7bcc0;
+            --sidebar-muted: #92999f;
+            --mono: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+            --sans: "Inter", "Segoe UI", Arial, sans-serif;
+        }
+
+        * {
+            box-sizing: border-box;
+        }
+
+        html {
+            scroll-behavior: smooth;
+        }
+
+        body {
+            margin: 0;
+            min-height: 100vh;
+            background: var(--work);
+            color: var(--text);
+            font-family: var(--sans);
+            font-size: 12px;
+            line-height: 1.42;
+        }
+
+        a {
+            color: inherit;
+            text-decoration: none;
+        }
+
+        .app {
+            min-height: 100vh;
+            padding-left: 236px;
+        }
+
+        .sidebar {
+            position: fixed;
+            inset: 0 auto 0 0;
+            width: 236px;
+            background: linear-gradient(180deg, var(--chrome-1), #62676c);
+            color: var(--sidebar-text);
+        }
+
+        .sidebar-header {
+            padding: 18px 18px 15px;
+            background: rgba(62, 68, 74, 0.46);
+        }
+
+        .product-label {
+            margin-bottom: 10px;
+            color: var(--sidebar-soft);
+            font-size: 10px;
+            font-weight: 700;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+        }
+
+        .sidebar-title {
+            margin-bottom: 6px;
+            color: #eceeef;
+            font-size: 15px;
+            font-weight: 700;
+        }
+
+        .sidebar-number {
+            color: var(--sidebar-text);
+            font-family: var(--mono);
+            font-size: 12px;
+        }
+
+        .sidebar-meta {
+            padding: 12px 18px;
+            border-bottom: 1px solid rgba(230, 232, 234, 0.16);
+        }
+
+        .meta-line {
+            display: flex;
+            justify-content: space-between;
+            gap: 12px;
+            padding: 5px 0;
+            color: var(--sidebar-soft);
+        }
+
+        .meta-line span:last-child {
+            color: #e2e4e6;
+            font-family: var(--mono);
+            text-align: right;
+        }
+
+        .nav {
+            padding: 10px 0;
+        }
+
+        .nav a {
+            display: grid;
+            grid-template-columns: 30px 1fr;
+            align-items: center;
+            min-height: 32px;
+            padding: 0 18px;
+            color: var(--sidebar-text);
+        }
+
+        .nav a:hover {
+            background: rgba(54, 60, 66, 0.38);
+        }
+
+        .nav b {
+            color: var(--sidebar-muted);
+            font-family: var(--mono);
+            font-size: 10px;
+        }
+
+        .nav span {
+            font-size: 12px;
+        }
+
+        .topbar {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            min-height: 42px;
+            padding: 0 20px;
+            background: var(--chrome-3);
+            color: #eef0f1;
+        }
+
+        .topbar-title {
+            font-size: 12px;
+            font-weight: 700;
+        }
+
+        .topbar-actions {
+            display: flex;
+            gap: 8px;
+            color: #d7dadc;
+            font-family: var(--mono);
+            font-size: 11px;
+        }
+
+        .content {
+            padding: 20px 24px 32px;
+        }
+
+        .report-header {
+            display: grid;
+            grid-template-columns: minmax(0, 1fr) 360px;
+            gap: 18px;
+            align-items: end;
+            margin-bottom: 18px;
+        }
+
+        h1,
+        h2,
+        h3,
+        p {
+            margin-top: 0;
+        }
+
+        h1 {
+            margin-bottom: 8px;
+            color: var(--text-strong);
+            font-size: 24px;
+            font-weight: 650;
+            letter-spacing: -0.03em;
+        }
+
+        .lead {
+            max-width: 780px;
+            margin-bottom: 0;
+            color: var(--text-soft);
+        }
+
+        .account-chip {
+            display: grid;
+            grid-template-columns: 1fr;
+            gap: 12px;
+            padding: 12px 14px;
+            background: var(--panel);
+            color: var(--text-soft);
+        }
+
+        .account-chip strong {
+            display: block;
+            color: var(--text-strong);
+            font-size: 13px;
+        }
+
+        .account-chip code,
+        .mono {
+            font-family: var(--mono);
+        }
+
+        .status {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            min-width: 78px;
+            min-height: 22px;
+            padding: 2px 8px;
+            background: #777d83;
+            color: #eff1f2;
+            font-family: var(--mono);
+            font-size: 10px;
+            font-weight: 700;
+            white-space: nowrap;
+        }
+
+        .status.mid {
+            background: #969ba0;
+            color: #eef0f1;
+        }
+
+        .status.light {
+            background: #c0c3c6;
+            color: var(--text-strong);
+        }
+
+        .status.outline {
+            background: transparent;
+            box-shadow: inset 0 0 0 1px rgba(66, 72, 78, 0.5);
+            color: var(--text-strong);
+        }
+
+        .metrics {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+            gap: 1px;
+            margin-bottom: 18px;
+            background: var(--line-soft);
+        }
+
+        .metric {
+            min-height: 78px;
+            padding: 12px 14px;
+            background: var(--panel);
+        }
+
+        .metric-label,
+        .section-kicker,
+        th {
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+        }
+
+        .metric-label {
+            display: block;
+            margin-bottom: 8px;
+            color: var(--text-faint);
+            font-size: 9px;
+            font-weight: 700;
+        }
+
+        .metric strong {
+            display: block;
+            margin-bottom: 4px;
+            color: var(--text-strong);
+            font-size: 20px;
+            line-height: 1;
+            font-weight: 650;
+        }
+
+        .metric span:last-child {
+            color: var(--text-soft);
+        }
+
+        .section {
+            margin-bottom: 18px;
+        }
+
+        .section-header {
+            display: flex;
+            align-items: flex-end;
+            justify-content: space-between;
+            gap: 16px;
+            margin-bottom: 8px;
+            padding-bottom: 8px;
+            border-bottom: 1px solid var(--line);
+        }
+
+        .section-kicker {
+            margin-bottom: 3px;
+            color: var(--text-faint);
+            font-family: var(--mono);
+            font-size: 9px;
+            font-weight: 700;
+        }
+
+        h2 {
+            margin-bottom: 0;
+            color: var(--text-strong);
+            font-size: 15px;
+            font-weight: 650;
+        }
+
+        .section-header p {
+            margin: 4px 0 0;
+            color: var(--text-soft);
+        }
+
+        .section-note {
+            color: var(--text-faint);
+            font-family: var(--mono);
+            white-space: nowrap;
+        }
+
+        .summary-grid {
+            display: grid;
+            grid-template-columns: minmax(0, 1.25fr) minmax(280px, 0.75fr);
+            gap: 1px;
+            background: var(--line-soft);
+        }
+
+        .summary-cell {
+            padding: 14px;
+            background: var(--panel);
+        }
+
+        .summary-cell h3 {
+            margin-bottom: 8px;
+            color: var(--text-strong);
+            font-size: 12px;
+        }
+
+        .summary-cell p {
+            margin-bottom: 8px;
+            color: var(--text-soft);
+        }
+
+        .summary-cell p:last-child {
+            margin-bottom: 0;
+        }
+
+        .definition-list {
+            display: grid;
+            gap: 1px;
+            background: var(--line-soft);
+        }
+
+        .definition-row {
+            display: grid;
+            grid-template-columns: 132px minmax(0, 1fr);
+            gap: 12px;
+            padding: 8px 10px;
+            background: var(--panel-soft);
+        }
+
+        .definition-row span:first-child {
+            color: var(--text-faint);
+        }
+
+        .definition-row span:last-child {
+            color: var(--text);
+            font-family: var(--mono);
+            font-size: 11px;
+            word-break: break-word;
+        }
+
+        .table-wrap {
+            overflow-x: auto;
+            background: var(--table);
+        }
+
+        table {
+            width: 100%;
+            min-width: 980px;
+            border-collapse: collapse;
+            background: var(--table);
+        }
+
+        th,
+        td {
+            padding: 8px 10px;
+            border-right: 1px solid var(--line-soft);
+            border-bottom: 1px solid var(--line-soft);
+            text-align: left;
+            vertical-align: top;
+        }
+
+        th:last-child,
+        td:last-child {
+            border-right: 0;
+        }
+
+        th {
+            position: sticky;
+            top: 0;
+            z-index: 1;
+            background: var(--table-head);
+            color: var(--text-soft);
+            font-size: 9px;
+            font-weight: 750;
+            white-space: nowrap;
+        }
+
+        td {
+            color: var(--text);
+            font-size: 11px;
+        }
+
+        tbody tr:nth-child(even) td {
+            background: var(--table-alt);
+        }
+
+        tbody tr:last-child td {
+            border-bottom: 0;
+        }
+
+        .muted {
+            color: var(--text-faint);
+        }
+
+        .info-grid {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(120px, 1fr));
+            gap: 3px 10px;
+            min-width: 280px;
+        }
+
+        .info-grid span {
+            color: var(--text-soft);
+        }
+
+        .info-grid b {
+            color: var(--text);
+            font-weight: 700;
+        }
+
+        .message-text {
+            max-width: 460px;
+            white-space: pre-wrap;
+        }
+
+        .timeline {
+            display: grid;
+            gap: 1px;
+            background: var(--line-soft);
+        }
+
+        .event {
+            display: grid;
+            grid-template-columns: 150px minmax(0, 1fr);
+            gap: 14px;
+            padding: 10px 12px;
+            background: var(--panel);
+        }
+
+        .event time {
+            color: var(--text-faint);
+            font-family: var(--mono);
+            font-size: 11px;
+        }
+
+        .event strong {
+            display: block;
+            margin-bottom: 3px;
+            color: var(--text-strong);
+            font-size: 12px;
+        }
+
+        .event span {
+            color: var(--text-soft);
+        }
+
+        .warning-box {
+            padding: 14px;
+            background: var(--panel);
+            color: var(--text-soft);
+        }
+
+        .warning-box strong {
+            display: block;
+            margin-bottom: 6px;
+            color: var(--text-strong);
+        }
+
+        @media (max-width: 1080px) {
+            .app {
+                padding-left: 0;
+            }
+
+            .sidebar {
+                position: static;
+                width: auto;
+            }
+
+            .nav {
+                display: grid;
+                grid-template-columns: repeat(4, minmax(0, 1fr));
+            }
+
+            .report-header,
+            .summary-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .metrics {
+                grid-template-columns: repeat(2, minmax(0, 1fr));
+            }
+        }
+
+        @media (max-width: 640px) {
+            .content {
+                padding: 14px;
+            }
+
+            .nav,
+            .metrics {
+                grid-template-columns: 1fr;
+            }
+
+            .section-header,
+            .event,
+            .definition-row {
+                display: block;
+            }
+
+            .section-note {
+                margin-top: 6px;
+                white-space: normal;
+            }
+        }
+
+        @media print {
+            body {
+                background: #cfd1d3;
+            }
+
+            .app {
+                padding-left: 0;
+            }
+
+            .sidebar,
+            .topbar {
+                display: none;
+            }
+
+            th {
+                position: static;
+            }
+        }
+    </style>
+</head>
+<body>
+    <aside class="sidebar" aria-label="Навигация отчета">
+        <div class="sidebar-header">
+            <div class="product-label">Служебный отчет</div>
+            <div class="sidebar-title">История аккаунта</div>
+            <div class="sidebar-number">393332866324</div>
+        </div>
+
+        <div class="sidebar-meta">
+            <div class="meta-line"><span>account.id</span><span>1842</span></div>
+            <div class="meta-line"><span>статус</span><span>active</span></div>
+            <div class="meta-line"><span>дата</span><span>2026-07-27</span></div>
+            <div class="meta-line"><span>режим</span><span>read only</span></div>
+        </div>
+
+        <nav class="nav">
+            <a href="#overview"><b>00</b><span>Сводка</span></a>
+            <a href="#account"><b>01</b><span>Аккаунт</span></a>
+            <a href="#files"><b>02</b><span>Файлы</span></a>
+            <a href="#owner"><b>03</b><span>Владелец</span></a>
+            <a href="#sessions"><b>04</b><span>Сессии</span></a>
+            <a href="#messages"><b>05</b><span>Сообщения</span></a>
+            <a href="#devices"><b>06</b><span>Android</span></a>
+            <a href="#timeline"><b>07</b><span>Хронология</span></a>
+            <a href="#limits"><b>08</b><span>Ограничения</span></a>
+        </nav>
+    </aside>
+
+    <main class="app">
+        <div class="topbar">
+            <div class="topbar-title">O3GO WA / Account report</div>
+            <div class="topbar-actions"><span>HTML</span><span>UTC</span><span>masked</span></div>
+        </div>
+
+        <div class="content">
+            <header class="report-header">
+                <div>
+                    <h1>Отчет по аккаунту 393332866324</h1>
+                    <p class="lead">
+                        Нативный служебный экран для просмотра связанных данных по одному аккаунту:
+                        сессии, сообщения, Android-устройства и владелец. Данные в примере статические;
+                        в endpoint они будут подставляться из БД.
+                    </p>
+                </div>
+                <div class="account-chip">
+                    <div>
+                        <strong>Account #1842</strong>
+                        <span>number <code>393332866324</code>, user <code>12</code></span>
+                    </div>
+                </div>
+            </header>
+
+            <section class="metrics" aria-label="Ключевые параметры отчета">
+                <div class="metric">
+                    <span class="metric-label">account</span>
+                    <strong>#1842</strong>
+                    <span>единственная строка по номеру</span>
+                </div>
+                <div class="metric">
+                    <span class="metric-label">sessions</span>
+                    <strong>7</strong>
+                    <span>по `account_id`</span>
+                </div>
+                <div class="metric">
+                    <span class="metric-label">messages</span>
+                    <strong>154</strong>
+                    <span>по `session_id`</span>
+                </div>
+                <div class="metric">
+                    <span class="metric-label">android</span>
+                    <strong>3</strong>
+                    <span>привязанные и устройства владельца</span>
+                </div>
+                <div class="metric">
+                    <span class="metric-label">owner</span>
+                    <strong>#12</strong>
+                    <span>владелец аккаунта</span>
+                </div>
+            </section>
+
+            <section class="section" id="overview">
+                <div class="section-header">
+                    <div>
+                        <div class="section-kicker">00 summary</div>
+                        <h2>Сводка</h2>
+                        <p>Как endpoint будет собирать отчет по номеру аккаунта.</p>
+                    </div>
+                    <div class="section-note mono">generated: 2026-07-27 12:00 UTC</div>
+                </div>
+
+                <div class="summary-grid">
+                    <div class="summary-cell">
+                        <h3>Интерпретация</h3>
+                        <p>
+                            В интерфейсе считаем, что `account.number` однозначно указывает на один аккаунт.
+                            Поэтому отчет показывает сам аккаунт как основной объект, без режима списка.
+                        </p>
+                        <p>
+                            История строится вокруг `account.id = 1842`: все сессии выбираются по этому ID,
+                            затем сообщения выбираются по ID найденных сессий. Android-устройства показывают текущую
+                            привязку и устройства владельца аккаунта.
+                        </p>
+                    </div>
+                    <div class="summary-cell">
+                        <h3>Карта запросов</h3>
+                        <div class="definition-list">
+                            <div class="definition-row">
+                                <span>Account</span>
+                                <span>account.number = :number</span>
+                            </div>
+                            <div class="definition-row">
+                                <span>Sessions</span>
+                                <span>session.account_id = account.id</span>
+                            </div>
+                            <div class="definition-row">
+                                <span>Messages</span>
+                                <span>message.session_id in session ids</span>
+                            </div>
+                            <div class="definition-row">
+                                <span>Android</span>
+                                <span>android.account_id = account.id or android.user_id = account.user_id</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <section class="section" id="account">
+                <div class="section-header">
+                    <div>
+                        <div class="section-kicker">01 account</div>
+                        <h2>Аккаунт</h2>
+                        <p>Одна строка таблицы `account` для номера `393332866324`.</p>
+                    </div>
+                    <div class="section-note mono">account.id = 1842</div>
+                </div>
+                <div class="table-wrap">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>ID</th>
+                                <th>UUID</th>
+                                <th>User</th>
+                                <th>Number</th>
+                                <th>Type</th>
+                                <th>Geo</th>
+                                <th>Status</th>
+                                <th>Limit</th>
+                                <th>Cooldown</th>
+                                <th>Attempts</th>
+                                <th>Session Count</th>
+                                <th>Created</th>
+                                <th>Updated</th>
+                                <th>Files</th>
+                                <th>Info</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <td class="mono">1842</td>
+                                <td class="mono">b46f0d2e-8f1a-4d62-bfa0-2d01df75a501</td>
+                                <td class="mono">12</td>
+                                <td class="mono">393332866324</td>
+                                <td>1 WhatsApp</td>
+                                <td>IT</td>
+                                <td><span class="status">active</span></td>
+                                <td>50</td>
+                                <td>15 min</td>
+                                <td>1</td>
+                                <td>7</td>
+                                <td class="mono">2026-07-18 09:11:23</td>
+                                <td class="mono">2026-07-27 11:48:04</td>
+                                <td>
+                                    <div class="mono">393332866324_178512.tar.gz</div>
+                                    <div class="muted">profile_1842.jpg</div>
+                                </td>
+                                <td>
+                                    <div class="info-grid">
+                                        <span><b>info_1:</b> import batch 07</span>
+                                        <span><b>info_2:</b> source A</span>
+                                        <span><b>info_3:</b> device pool 4</span>
+                                        <span><b>info_4:</b> -</span>
+                                        <span><b>info_5:</b> -</span>
+                                        <span><b>info_6:</b> -</span>
+                                        <span><b>info_7:</b> -</span>
+                                        <span><b>info_8:</b> -</span>
+                                    </div>
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+
+            <section class="section" id="files">
+                <div class="section-header">
+                    <div>
+                        <div class="section-kicker">02 files</div>
+                        <h2>Файлы</h2>
+                        <p>Проверка `file_name` и `profile_file_name` на диске: `upload/wa` и `upload/wa/profile`.</p>
+                    </div>
+                    <div class="section-note mono">filesystem check</div>
+                </div>
+                <div class="table-wrap">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Kind</th>
+                                <th>DB Field</th>
+                                <th>File Name</th>
+                                <th>Base Dir</th>
+                                <th>Path</th>
+                                <th>Exists</th>
+                                <th>Size Bytes</th>
+                                <th>Modified At</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <td>archive</td>
+                                <td class="mono">file_name</td>
+                                <td class="mono">393332866324_178512.tar.gz</td>
+                                <td class="mono">upload/wa</td>
+                                <td class="mono">upload/wa/393332866324_178512.tar.gz</td>
+                                <td><span class="status">true</span></td>
+                                <td class="mono">418204</td>
+                                <td class="mono">2026-07-18 09:11:23</td>
+                            </tr>
+                            <tr>
+                                <td>profile</td>
+                                <td class="mono">profile_file_name</td>
+                                <td class="mono">profile_1842.jpg</td>
+                                <td class="mono">upload/wa/profile</td>
+                                <td class="mono">upload/wa/profile/profile_1842.jpg</td>
+                                <td><span class="status outline">false</span></td>
+                                <td class="mono">-</td>
+                                <td class="mono">-</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+
+            <section class="section" id="owner">
+                <div class="section-header">
+                    <div>
+                        <div class="section-kicker">03 owner</div>
+                        <h2>Владелец</h2>
+                        <p>Таблица `user`, связь через `account.user_id`.</p>
+                    </div>
+                    <div class="section-note mono">user.id = 12</div>
+                </div>
+                <div class="table-wrap">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>ID</th>
+                                <th>Name</th>
+                                <th>Login</th>
+                                <th>Ext API Key</th>
+                                <th>Password Hash</th>
+                                <th>Active</th>
+                                <th>Superuser</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <td class="mono">12</td>
+                                <td>Partner 12</td>
+                                <td class="mono">partner_12</td>
+                                <td class="mono">hB9...masked...q21</td>
+                                <td class="mono">*** masked ***</td>
+                                <td><span class="status">true</span></td>
+                                <td><span class="status light">false</span></td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+
+            <section class="section" id="sessions">
+                <div class="section-header">
+                    <div>
+                        <div class="section-kicker">04 sessions</div>
+                        <h2>Сессии</h2>
+                        <p>Все строки `session`, где `account_id = 1842`.</p>
+                    </div>
+                    <div class="section-note mono">7 rows</div>
+                </div>
+                <div class="table-wrap">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>ID</th>
+                                <th>Account</th>
+                                <th>Ext ID</th>
+                                <th>Status</th>
+                                <th>Msg Count</th>
+                                <th>Created</th>
+                                <th>Updated</th>
+                                <th>Info</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <td class="mono">9011</td>
+                                <td class="mono">1842</td>
+                                <td class="mono">wa-393332866324-20260727-001</td>
+                                <td><span class="status">active</span></td>
+                                <td>38</td>
+                                <td class="mono">2026-07-27 10:22:14</td>
+                                <td class="mono">2026-07-27 11:48:04</td>
+                                <td>info_1=device-17, info_2=batch-44</td>
+                            </tr>
+                            <tr>
+                                <td class="mono">8870</td>
+                                <td class="mono">1842</td>
+                                <td class="mono">wa-393332866324-20260726-003</td>
+                                <td><span class="status mid">finished</span></td>
+                                <td>52</td>
+                                <td class="mono">2026-07-26 13:09:40</td>
+                                <td class="mono">2026-07-26 15:20:19</td>
+                                <td>info_1=device-11</td>
+                            </tr>
+                            <tr>
+                                <td class="mono">8104</td>
+                                <td class="mono">1842</td>
+                                <td class="mono">wa-393332866324-20260712-001</td>
+                                <td><span class="status outline">banned</span></td>
+                                <td>11</td>
+                                <td class="mono">2026-07-12 19:41:11</td>
+                                <td class="mono">2026-07-12 20:05:44</td>
+                                <td>info_1=ban webhook</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+
+            <section class="section" id="messages">
+                <div class="section-header">
+                    <div>
+                        <div class="section-kicker">05 messages</div>
+                        <h2>Сообщения</h2>
+                        <p>Все строки `message`, связанные с найденными сессиями аккаунта. В таблице есть session_id.</p>
+                    </div>
+                    <div class="section-note mono">154 rows</div>
+                </div>
+                <div class="table-wrap">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>ID</th>
+                                <th>Session</th>
+                                <th>Number</th>
+                                <th>Geo</th>
+                                <th>Status</th>
+                                <th>Created</th>
+                                <th>Sent</th>
+                                <th>Updated</th>
+                                <th>Text</th>
+                                <th>Info</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <td class="mono">554120</td>
+                                <td class="mono">9011</td>
+                                <td class="mono">+79204800058</td>
+                                <td>RU</td>
+                                <td><span class="status">delivered</span></td>
+                                <td class="mono">2026-07-27 10:27:44</td>
+                                <td class="mono">2026-07-27 10:28:02</td>
+                                <td class="mono">2026-07-27 10:28:18</td>
+                                <td class="message-text">Здравствуйте! Это пример текста сообщения из поля `message.text`.</td>
+                                <td>info_1=campaign-31, info_2=android-confirmed</td>
+                            </tr>
+                            <tr>
+                                <td class="mono">554121</td>
+                                <td class="mono">9011</td>
+                                <td class="mono">+79261234567</td>
+                                <td>RU</td>
+                                <td><span class="status mid">sent</span></td>
+                                <td class="mono">2026-07-27 10:29:05</td>
+                                <td class="mono">2026-07-27 10:29:18</td>
+                                <td class="mono">2026-07-27 10:29:18</td>
+                                <td class="message-text">Короткое сообщение без статуса доставки.</td>
+                                <td>info_1=campaign-31</td>
+                            </tr>
+                            <tr>
+                                <td class="mono">543008</td>
+                                <td class="mono">8104</td>
+                                <td class="mono">+79160000001</td>
+                                <td>RU</td>
+                                <td><span class="status outline">failed</span></td>
+                                <td class="mono">2026-07-12 19:59:55</td>
+                                <td class="mono">2026-07-12 20:00:01</td>
+                                <td class="mono">2026-07-12 20:05:44</td>
+                                <td class="message-text">Сообщение из сессии, которая закончилась баном.</td>
+                                <td>info_1=date_error, info_2=ban</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+
+            <section class="section" id="devices">
+                <div class="section-header">
+                    <div>
+                        <div class="section-kicker">06 android</div>
+                        <h2>Android-устройства</h2>
+                        <p>`android.account_id` показывает текущую привязку; `android.user_id` показывает устройства владельца.</p>
+                    </div>
+                    <div class="section-note mono">3 rows</div>
+                </div>
+                <div class="table-wrap">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>ID</th>
+                                <th>User</th>
+                                <th>Account</th>
+                                <th>Device</th>
+                                <th>Origin</th>
+                                <th>Name</th>
+                                <th>Maker</th>
+                                <th>App</th>
+                                <th>Android</th>
+                                <th>Operator</th>
+                                <th>Battery</th>
+                                <th>Active</th>
+                                <th>Note</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <td class="mono">77</td>
+                                <td class="mono">12</td>
+                                <td class="mono">1842</td>
+                                <td class="mono">3df3bda5-7fbd-400c-901b-7baccb875bd8-WA</td>
+                                <td class="mono">3df3bda5-7fbd-400c-901b-7baccb875bd8</td>
+                                <td>Pixel 8 [WhatsApp]</td>
+                                <td>Google</td>
+                                <td>1</td>
+                                <td>14</td>
+                                <td>WhatsApp</td>
+                                <td>87%, charging=0</td>
+                                <td><span class="status">true</span></td>
+                                <td>current binding</td>
+                            </tr>
+                            <tr>
+                                <td class="mono">71</td>
+                                <td class="mono">12</td>
+                                <td>-</td>
+                                <td class="mono">23ec1f50-8ad5-47a5-b719-daa6223427c8-WA</td>
+                                <td class="mono">23ec1f50-8ad5-47a5-b719-daa6223427c8</td>
+                                <td>Samsung A54 [WhatsApp]</td>
+                                <td>Samsung</td>
+                                <td>1</td>
+                                <td>13</td>
+                                <td>WhatsApp</td>
+                                <td>42%, charging=1</td>
+                                <td><span class="status">true</span></td>
+                                <td>owner device, no account binding</td>
+                            </tr>
+                            <tr>
+                                <td class="mono">66</td>
+                                <td class="mono">12</td>
+                                <td class="mono">1842</td>
+                                <td class="mono">9572b962-3867-44f4-bf72-1358ef5d33b1-WA</td>
+                                <td class="mono">9572b962-3867-44f4-bf72-1358ef5d33b1</td>
+                                <td>Redmi Note 12 [WhatsApp]</td>
+                                <td>Xiaomi</td>
+                                <td>1</td>
+                                <td>12</td>
+                                <td>WhatsApp</td>
+                                <td>5%, charging=0</td>
+                                <td><span class="status outline">false</span></td>
+                                <td>inactive owner device</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+
+            <section class="section" id="timeline">
+                <div class="section-header">
+                    <div>
+                        <div class="section-kicker">07 timeline</div>
+                        <h2>Хронология</h2>
+                        <p>`created_at` сообщения отображается как создание, `updated_at` как отдельное обновление.</p>
+                    </div>
+                </div>
+                <div class="timeline">
+                    <div class="event">
+                        <time>2026-07-18 09:11</time>
+                        <div>
+                            <strong>Создан account #1842</strong>
+                            <span>Загружен архив аккаунта и создана строка `account`.</span>
+                        </div>
+                    </div>
+                    <div class="event">
+                        <time>2026-07-26 13:09</time>
+                        <div>
+                            <strong>Session #8870 завершена</strong>
+                            <span>Отправлено 52 сообщения, сессия перешла в `finished`.</span>
+                        </div>
+                    </div>
+                    <div class="event">
+                        <time>2026-07-27 10:22</time>
+                        <div>
+                            <strong>Старт активной session #9011</strong>
+                            <span>Аккаунт переведен в `active`, Android #77 привязан к аккаунту.</span>
+                        </div>
+                    </div>
+                    <div class="event">
+                        <time>2026-07-27 10:28</time>
+                        <div>
+                            <strong>Создано message #554120</strong>
+                            <span>session_id=9011, получатель +79204800058, статус `created`.</span>
+                        </div>
+                    </div>
+                    <div class="event">
+                        <time>2026-07-27 10:28</time>
+                        <div>
+                            <strong>Обновлено message #554120</strong>
+                            <span>session_id=9011, статус обновлен до `delivered`.</span>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <section class="section" id="limits">
+                <div class="section-header">
+                    <div>
+                        <div class="section-kicker">08 limits</div>
+                        <h2>Ограничения данных</h2>
+                        <p>Что отчет не сможет восстановить из текущей схемы.</p>
+                    </div>
+                </div>
+                <div class="warning-box">
+                    <strong>В моделях нет audit/history-таблицы.</strong>
+                    Отчет показывает текущие строки и связанные записи, но не восстанавливает старые значения полей
+                    после обновлений, прошлые Android-привязки после `account_id = NULL`, а также удаленные строки.
+                </div>
+            </section>
+        </div>
+    </main>
+</body>
+</html>
