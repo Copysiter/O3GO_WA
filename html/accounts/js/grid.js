@@ -132,6 +132,7 @@ window.initGrid = function() {
                             account: {type: 'object'},
                             type: { type: 'number' },
                             msg_count: { type: 'number' },
+                            session_count: { type: 'number', editable: false },
                             status: { type: 'number' },
                             user_id: { type: 'number' },
                             device: { type: 'string', editable: false },
@@ -320,6 +321,11 @@ window.initGrid = function() {
                             operator: 'eq',
                         },
                     },
+                },
+                {
+                    field: 'session_count',
+                    title: 'Sessions',
+                    format: '{0:n0}',
                 },
                 {
                     field: 'device',

@@ -36,9 +36,6 @@ class AccountBase(BaseModel):
     attempts: int = Field(
         1, description='Допустимое количество банов'
     )
-    session_count: int | None = Field(
-        None, description="Исходное название архива"
-    )
     status: int | None = Field(None, description="Статус аккаунта")
     created_at: datetime | None = Field(
         default_factory=lambda: datetime.now(timezone.utc),
@@ -111,6 +108,9 @@ class AccountInDBBase(AccountBase):
     """Базовая схема аккаунта с ID, используемая при работе с БД"""
     model_config = ConfigDict(from_attributes=True)
     id: int = Field(None, description="Уникальный идентификатор")
+    session_count: int = Field(
+        0, ge=0, description="Количество существующих сессий аккаунта"
+    )
 
 
 class Account(AccountInDBBase):
