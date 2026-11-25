@@ -12,10 +12,13 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import calendar
+from collections import Counter
 import json
 import os
 import sys
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import NamedTuple
 
@@ -31,6 +34,8 @@ BATCH_SIZE = 1000
 class ArchiveRow(NamedTuple):
     id: int
     file_name: str | None
+    attempts: int | None = None
+    updated_at: datetime | None = None
 
 
 @dataclass
@@ -39,6 +44,38 @@ class Summary:
     present: int = 0
     missing: int = 0
     empty: int = 0
+    as_of: datetime | None = field(default=None, compare=False)
+    distribution: Counter = field(default_factory=Counter, compare=False)
+
+
+AGE_LABELS = {
+    "recent": "Младше месяца",
+    "middle": "От 1 до 3 месяцев",
+    "old": "Старше 3 месяцев",
+    "future": "Дата в будущем",
+    "unknown": "Дата не задана/без часового пояса",
+}
+
+
+def months_before(value: datetime, months: int) -> datetime:
+    index = value.year * 12 + value.month - 1 - months
+    year, month = divmod(index, 12)
+    month += 1
+    day = min(value.day, calendar.monthrange(year, month)[1])
+    return value.replace(year=year, month=month, day=day)
+
+
+def age_group(updated_at: datetime | None, as_of: datetime) -> str:
+    if updated_at is None or updated_at.utcoffset() is None:
+        return "unknown"
+    updated_at = updated_at.astimezone(timezone.utc)
+    if updated_at > as_of:
+        return "future"
+    if updated_at > months_before(as_of, 1):
+        return "recent"
+    if updated_at >= months_before(as_of, 3):
+        return "middle"
+    return "old"
 
 
 def ensure_directory(directory: Path) -> None:
@@ -49,12 +86,16 @@ def ensure_directory(directory: Path) -> None:
         next(entries, None)
 
 
-def check_batch(directory: Path, rows: list[ArchiveRow]) -> tuple[Summary, list[dict]]:
+def check_batch(
+    directory: Path, rows: list[ArchiveRow], *, as_of: datetime | None = None,
+) -> tuple[Summary, list[dict]]:
     ensure_directory(directory)
-    summary = Summary()
+    summary = Summary(as_of=as_of or datetime.now(timezone.utc))
     issues = []
     for row in rows:
         summary.checked += 1
+        group = age_group(row.updated_at, summary.as_of)
+        summary.distribution[row.attempts, group] += 1
         if not row.file_name:
             summary.empty += 1
             reason = "empty_file_name"
@@ -64,7 +105,12 @@ def check_batch(directory: Path, rows: list[ArchiveRow]) -> tuple[Summary, list[
         else:
             summary.missing += 1
             reason = "missing_file"
-        issues.append({"account_id": row.id, "file_name": row.file_name, "reason": reason})
+        issues.append({
+            "account_id": row.id, "file_name": row.file_name, "reason": reason,
+            "attempts": row.attempts,
+            "updated_at": row.updated_at.isoformat() if row.updated_at else None,
+            "age_group": group,
+        })
     return summary, issues
 
 
@@ -73,11 +119,13 @@ async def scan_accounts(db, directory: Path, *, details: bool = False) -> Summar
     from app.models.account import Account, AccountStatus
 
     await asyncio.to_thread(ensure_directory, directory)
-    summary = Summary()
+    summary = Summary(as_of=datetime.now(timezone.utc))
     before_id = None
     columns = Account.__table__.c
     while True:
-        query = select(columns.id, columns.file_name).where(
+        query = select(
+            columns.id, columns.file_name, columns.attempts, columns.updated_at,
+        ).where(
             columns.status == AccountStatus.BANNED,
         )
         if before_id is not None:
@@ -86,7 +134,10 @@ async def scan_accounts(db, directory: Path, *, details: bool = False) -> Summar
         rows = [ArchiveRow(*row) for row in result.all()]
         if not rows:
             break
-        batch, issues = await asyncio.to_thread(check_batch, directory, rows)
+        batch, issues = await asyncio.to_thread(
+            check_batch, directory, rows, as_of=summary.as_of,
+        )
+        summary.distribution.update(batch.distribution)
         summary.checked += batch.checked
         summary.present += batch.present
         summary.missing += batch.missing
@@ -111,6 +162,43 @@ async def run_scan(directory: Path, *, details: bool = False) -> Summary:
         await engine.dispose()
 
 
+def print_statistics(summary: Summary) -> None:
+    print("\nСТАТИСТИКА attempts И updated_at")
+    if summary.as_of is not None:
+        print(f"Момент отсчёта (UTC): {summary.as_of.isoformat()}")
+        print(f"Граница 1 месяца: {months_before(summary.as_of, 1).isoformat()}")
+        print(f"Граница 3 месяцев: {months_before(summary.as_of, 3).isoformat()}")
+    print("Используются календарные месяцы. Ровно 1 и ровно 3 месяца входят "
+          "в группу 'От 1 до 3 месяцев'.")
+    print("updated_at — последнее обновление записи, НЕ обязательно дата бана.")
+    print("Учитываются все забаненные аккаунты независимо от наличия архива.")
+    groups = list(AGE_LABELS)
+    attempts_values = sorted(
+        {attempts for attempts, _ in summary.distribution},
+        key=lambda value: (value is None, value if value is not None else 0),
+    )
+    headers = ["attempts", "Всего", *AGE_LABELS.values()]
+    rows = []
+    for attempts in attempts_values:
+        counts = [summary.distribution[attempts, group] for group in groups]
+        rows.append(["NULL" if attempts is None else str(attempts),
+                     sum(counts), *counts])
+    totals = [sum(count for (_, age), count in summary.distribution.items()
+                  if age == group) for group in groups]
+    rows.append(["ИТОГО", sum(totals), *totals])
+    formatted = [headers] + [
+        [str(row[0]), *(f"{value:,}".replace(",", " ") for value in row[1:])]
+        for row in rows
+    ]
+    widths = [max(len(row[i]) for row in formatted) for i in range(len(headers))]
+    for index, row in enumerate(formatted):
+        print(" | ".join(value.ljust(width) for value, width in zip(row, widths)))
+        if index == 0:
+            print("-+-".join("-" * width for width in widths))
+    print("Будущие даты, отсутствующие даты и даты без часового пояса выделены "
+          "отдельно и не входят в три возрастные группы.")
+
+
 def print_report(summary: Summary) -> None:
     print("\nИТОГИ ПРОВЕРКИ ЗАБАНЕННЫХ АККАУНТОВ")
     for label, value in (
@@ -127,7 +215,8 @@ def print_report(summary: Summary) -> None:
         print("Ответ: НЕТ, не у всех забаненных аккаунтов есть указанный архив на диске.")
     else:
         print("Ответ: ДА, у всех проверенных забаненных аккаунтов указанный файл существует.")
-    print("Считаются аккаунты, а не уникальные файлы: один архив может быть указан "
+    print_statistics(summary)
+    print("\nСчитаются аккаунты, а не уникальные файлы: один архив может быть указан "
           "у нескольких аккаунтов.")
     print("Проверяется точный путь по file_name внутри каталога архивов, без подбора "
           "замен по префиксу. Регистр и пробелы не нормализуются.")
