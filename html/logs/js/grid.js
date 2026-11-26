@@ -14,6 +14,7 @@ window.initGrid = function() {
             const classes = {
                 active: 'success',
                 available: 'primary',
+                archived: 'light',
                 banned: 'error',
                 created: 'light',
                 delivered: 'success',
@@ -468,6 +469,7 @@ window.initGrid = function() {
                                 dataSource: [
                                     {value: 'active', text: 'ACTIVE'},
                                     {value: 'available', text: 'AVAILABLE'},
+                                    {value: 'archived', text: 'ARCHIVED'},
                                     {value: 'banned', text: 'BANNED'},
                                     {value: 'created', text: 'CREATED'},
                                     {value: 'delivered', text: 'DELIVERED'},

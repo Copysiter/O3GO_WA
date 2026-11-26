@@ -1,10 +1,13 @@
-from typing import Any, Sequence
+from typing import Any, Literal, Sequence
+
+from fastapi import HTTPException
 
 from sqlalchemy import Integer, any_, bindparam, delete, func, select, update
 from sqlalchemy.dialects.postgresql import ARRAY
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.crud.base import CRUDBase
+from app.crud.filter.sqlalchemy import Filter
 from app.models.account import Account, AccountStatus
 from app.models.message import Message, MessageStatus
 from app.models.session import Session, SessionStatus
@@ -18,6 +21,39 @@ class AccountCRUD(
 
     def __init__(self) -> None:
         super().__init__(model=Account, filter_class=AccountFilter)
+
+    async def update(
+        self, db: AsyncSession, *,
+        obj_in: AccountUpdate | dict[str, Any],
+        db_obj: Account | None = None, id: Any | None = None,
+        filter: Filter | dict[str, Any] | None = None,
+        commit: bool = True,
+        returning: Literal["object", "id", "count"] = "object",
+    ) -> Account | list[Account] | int | None:
+        if sum(value is not None for value in (db_obj, id, filter)) != 1:
+            raise ValueError("Provide exactly one of db_obj, id, filter.")
+        if returning not in ("object", "id", "count"):
+            raise ValueError("Invalid returning mode.")
+        # Serialize all normal mutations with archival. Archived records are
+        # immutable here; file cleanup uses its dedicated conditional SQL.
+        stmt = select(Account.id, Account.status)
+        if db_obj is not None or id is not None:
+            account_id = db_obj.id if db_obj is not None else id
+            stmt = stmt.where(Account.id == account_id)
+        else:
+            parsed = self._get_filter(filter)
+            if parsed is None:
+                raise ValueError("Filter must be provided for bulk update.")
+            stmt = parsed.filter(stmt)
+        rows = (await db.execute(
+            stmt.with_for_update()
+        )).all()
+        if any(item.status == AccountStatus.ARCHIVED for item in rows):
+            raise HTTPException(status_code=409, detail="Account is archived")
+        return await super().update(
+            db, obj_in=obj_in, db_obj=db_obj, id=id, filter=filter,
+            commit=commit, returning=returning,
+        )
 
     async def delete_returning_id(
         self, db: AsyncSession, *, account_id: int,
@@ -130,7 +166,8 @@ class AccountCRUD(
         """Read a global page of ID, number and nonempty archive name."""
         stmt = select(Account.id, Account.number, Account.file_name).where(
             Account.file_name.is_not(None),
-            Account.file_name != ""
+            Account.file_name != "",
+            Account.status != AccountStatus.ARCHIVED,
         )
         if before_id is not None:
             stmt = stmt.where(Account.id < before_id)
@@ -184,6 +221,7 @@ class AccountCRUD(
             .where(
                 Account.id == account_id,
                 Account.file_name == old_file_name,
+                Account.status != AccountStatus.ARCHIVED,
                 ~new_file_referenced
             )
             .values(
@@ -355,7 +393,8 @@ class AccountCRUD(
             update(Account)
             .where(
                 Account.id == account_id,
-                Account.user_id == user_id
+                Account.user_id == user_id,
+                Account.status != AccountStatus.ARCHIVED,
             )
             .values(
                 hash=value,

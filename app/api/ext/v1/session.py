@@ -11,6 +11,9 @@ import app.models as models
 import app.schemas as schemas
 from app.services.log import LogOperation, log_service
 from app.models.session import AccountStatus, SessionStatus
+from app.services.account_archive import (
+    archive_session_account, cleanup_archived_files, lock_account,
+)
 
 
 router = APIRouter()
@@ -33,6 +36,7 @@ async def _update_session_status(
     info_8: str | None = None,
     status: AccountStatus,
     audit: LogOperation | None = None,
+    unlink: bool = False,
 ) -> schemas.SessionStatusResponse:
     """Обновляет статус сессии, проверяя связанный аккаунт."""
     audit = audit or log_service.operation(
@@ -62,13 +66,37 @@ async def _update_session_status(
     audit.account_id = session.account_id
     audit.session_id = session.id
     audit.stage = "lookup_account"
-    account = await crud.account.get(db, session.account_id)
+    account = await lock_account(db, session.account_id)
     if not account or account.number != number:
         audit.error_code = "account_mismatch"
         raise HTTPException(
             status_code=http_status.HTTP_400_BAD_REQUEST,
             detail="Account mismatch for provided session id and number",
         )
+
+    if unlink:
+        values = locals()
+        info = {
+            f"info_{i}": values[f"info_{i}"] for i in range(1, 9)
+            if values[f"info_{i}"] is not None
+        }
+        response = schemas.SessionStatusResponse(
+            id=session.id, ext_id=session.ext_id, number=number, status="banned",
+        )
+        await archive_session_account(
+            db, session_id=session.id, user_id=user_id, number=number,
+            info=info, audit=audit,
+        )
+        audit.db_outcome = "committed"
+        audit.stage = "cleanup"
+        if not await cleanup_archived_files(db, account.id):
+            raise HTTPException(
+                status_code=503,
+                detail="Account archived; file cleanup pending. Retry unlink=true.",
+            )
+        return response
+    if account.status == AccountStatus.ARCHIVED:
+        raise HTTPException(status_code=409, detail="Account is archived")
 
     # Обновляем сессию - всегда с переданным статусом
     audit.stage = "update_session"
@@ -223,6 +251,9 @@ async def start_session(
             db, number=number, user_id=user.id
         )
         if account:
+            account = await lock_account(db, account.id)
+            if account is None or account.status == AccountStatus.ARCHIVED:
+                raise HTTPException(status_code=409, detail="Account is archived")
             audit.account_id = account.id
             audit.stage = "update_account"
             account_event = "account.status"
@@ -414,6 +445,7 @@ async def finish_session(
 )
 async def ban_session(
     *,
+    unlink: bool = Query(False, description="Архивировать аккаунт и удалить архив и профиль"),
     db: AsyncSession = Depends(deps.get_db),
     id: int | None = Query(None, description="ID сессии аккаунта"),
     ext_id: str | None = Query(
@@ -456,6 +488,7 @@ async def ban_session(
             number=number,
             audit=audit,
             status=AccountStatus.BANNED,
+            unlink=unlink is True,
             info_1=info_1,
             info_2=info_2,
             info_3=info_3,

@@ -433,6 +433,9 @@ window.initGrid = function() {
                         else if (item.status == 1) {
                             return "<span class='badge badge-sm k-badge k-badge-solid k-badge-md k-badge-rounded k-badge-success'>ACTIVE</span>"
                         }
+                        else if (item.status == 3) {
+                            return "<span class='badge badge-sm k-badge k-badge-solid k-badge-md k-badge-rounded k-badge-light'>ARCHIVED</span>"
+                        }
                         else if (item.status == 2) {
                             return "<span class='badge badge-sm k-badge k-badge-solid k-badge-md k-badge-rounded k-badge-warning'>PAUSED</span>"
                         }
@@ -452,7 +455,8 @@ window.initGrid = function() {
                                     {value: -1, text: "BANNED"},
                                     {value: 0, text: "AVAILABLE"},
                                     {value: 1, text: "ACTIVE"},
-                                    {value: 2, text: "PAUSED"}
+                                    {value: 2, text: "PAUSED"},
+                                    {value: 3, text: "ARCHIVED"}
                                 ],
                                 dataTextField: "text",
                                 dataValueField: "value",

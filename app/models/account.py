@@ -21,6 +21,7 @@ class AccountStatus(IntEnum):
     AVAILABLE = 0
     ACTIVE    = 1
     PAUSED    = 2
+    ARCHIVED  = 3
 
 
 class Account(Base):

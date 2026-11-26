@@ -103,6 +103,7 @@ class LogService:
             0: "available",
             1: "active",
             2: "paused",
+            3: "archived",
         },
         "session": {
             -1: "banned",

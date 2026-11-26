@@ -23,6 +23,7 @@ ACCOUNT_STATUS = {
     0: "available",
     1: "active",
     2: "paused",
+    3: "archived",
 }
 SESSION_STATUS = {
     -1: "banned",

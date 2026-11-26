@@ -36,6 +36,11 @@ PROFILE_UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 router = APIRouter()
 
 
+class AccountAcquireFilter(schemas.AccountFilter):
+    """Public allocation queues; numeric values remain backward compatible."""
+    status: Literal["available", "banned", "0", "-1"] = "available"
+
+
 def _build_account_filter_conditions(filter_obj, model_alias, user_id):
     """
     Построение WHERE условий для фильтрации аккаунтов.
@@ -48,20 +53,26 @@ def _build_account_filter_conditions(filter_obj, model_alias, user_id):
     # Обязательные условия
     target_status = filter_obj.status \
         if filter_obj.status is not None else AccountStatus.AVAILABLE
+    target_status = {
+        "available": AccountStatus.AVAILABLE, "0": AccountStatus.AVAILABLE,
+        "banned": AccountStatus.BANNED, "-1": AccountStatus.BANNED,
+    }.get(target_status, target_status)
     conditions.append(model_alias.status == target_status)
+    conditions.append(model_alias.status != AccountStatus.ARCHIVED)
     conditions.append(model_alias.user_id == user_id)
     
-    # Cooldown проверка
-    conditions.append(
-        or_(
-            model_alias.updated_at.is_(None),
-            model_alias.cooldown.is_(None),
-            datetime.utcnow() > (
-                model_alias.updated_at +
-                func.make_interval(0, 0, 0, 0, 0, model_alias.cooldown, 0)
+    # Проверка бана не является отправкой сообщений: cooldown не нужен.
+    if target_status != AccountStatus.BANNED:
+        conditions.append(
+            or_(
+                model_alias.updated_at.is_(None),
+                model_alias.cooldown.is_(None),
+                datetime.utcnow() > (
+                    model_alias.updated_at +
+                    func.make_interval(0, 0, 0, 0, 0, model_alias.cooldown, 0)
+                )
             )
         )
-    )
 
     # Аккаунт должен иметь архив или hash для внешнего клиента.
     conditions.append(or_(
@@ -182,7 +193,8 @@ def _prepare_upload_data(
 async def _save_upload_file(file: UploadFile, file_path: Path) -> None:
     """Write and close a new upload without removing existing artifacts."""
     content = await file.read()
-    async with aiofiles.open(file_path, "wb") as destination:
+    # Never overwrite a file that an archival cleanup may be unlinking.
+    async with aiofiles.open(file_path, "xb") as destination:
         await destination.write(content)
 
 
@@ -239,6 +251,8 @@ async def _set_account_hash(
     value: str | None
 ) -> models.Account:
     """Изменяет hash, освобождает аккаунт и сохраняет аудит."""
+    if account.status == AccountStatus.ARCHIVED:
+        raise HTTPException(status_code=409, detail="Account is archived")
     updated_account = await crud.account.update_hash(
         session,
         account_id=account.id,
@@ -353,6 +367,8 @@ async def upload_archive(
             db=session, number=obj_in.number, user_id=actor_id
         )
         if before is not None:
+            if before["status"] == AccountStatus.ARCHIVED:
+                raise HTTPException(status_code=409, detail="Account is archived")
             audit.account_id = before["id"]
         await session.commit()
         branch = "update" if before is not None else "create"
@@ -633,7 +649,7 @@ async def update_account_hash_by_id(
 async def get_account(
     *,
     session: AsyncSession = Depends(deps.get_db),
-    filter: schemas.AccountFilter = Depends(),
+    filter: AccountAcquireFilter = Depends(),
     user=Depends(deps.get_user_by_api_key),
     request: Request
 ) -> Any:
@@ -770,6 +786,8 @@ async def download_archive(
                 detail=f'Archive with UUID={uuid} not found'
             )
         
+        if account.status == AccountStatus.ARCHIVED:
+            raise HTTPException(status_code=410, detail="Account files have been retired")
         if not account.file_name:
             logger.warning(
                 'Archive filename not specified',
@@ -850,6 +868,8 @@ async def download_archive(
                 detail=f'Profile with UUID={uuid} not found'
             )
 
+        if account.status == AccountStatus.ARCHIVED:
+            raise HTTPException(status_code=410, detail="Account files have been retired")
         if not account.profile_file_name:
             logger.warning(
                 'Profile filename not specified',

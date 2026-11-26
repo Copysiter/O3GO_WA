@@ -5,7 +5,8 @@
         '-1': 'banned',
         '0': 'available',
         '1': 'active',
-        '2': 'paused'
+        '2': 'paused',
+        '3': 'archived'
     };
 
     var SESSION_STATUS = {
